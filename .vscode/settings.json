@@ -1,0 +1,11 @@
+{
+	"[python]": {
+		"editor.formatOnSave": true, // ファイル保存時に適用
+		"editor.codeActionsOnSave": {
+			"source.fixAll": "explicit", // 自動修正
+			"source.organizeImports": "explicit", // インポートの整理
+		},
+		"editor.defaultFormatter": "charliermarsh.ruff", // Ruffをデフォルトフォーマッターに設定
+	},
+	"python.terminal.useEnvFile": true, // ターミナルで.envファイルを使用
+}
