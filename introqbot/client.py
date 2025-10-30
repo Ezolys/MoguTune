@@ -1,15 +1,13 @@
 from os import getenv
 
 import discord
-from discord import Intents
-from discord.ext import commands
+import discord.bot
 
 from introqbot.localizations import Localization
 from introqbot.logger import logger
 
-intents = Intents.default()
-client = commands.Bot(command_prefix="iq:", intents=intents)
-tree = client.tree
+intents = None
+client = discord.bot.Bot(intents=intents)
 
 
 # 接続完了時
@@ -19,8 +17,8 @@ async def on_connect() -> None:
 	# 言語データを読み込む
 	Localization.load_locale_data()
 	# Cogs の読み込み
-	await client.load_extension("cogs.commands")
-	await tree.sync(guild=discord.Object(id=1118692349250392184))
+	# await client.load_extension("cogs.commands")
+	# await tree.sync(guild=discord.Object(id=1118692349250392184))
 
 
 # 準備完了時
