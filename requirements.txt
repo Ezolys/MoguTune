@@ -9,6 +9,7 @@ aiohappyeyeballs==2.6.1
 aiohttp==3.13.2
     # via
     #   ezcord
+    #   mafic
     #   py-cord
 aiosignal==1.4.0
     # via aiohttp
@@ -20,31 +21,17 @@ audioop-lts==0.2.2
     # via ezcord
 backports-zstd==1.0.0 ; python_full_version < '3.14' and platform_python_implementation == 'CPython'
     # via aiohttp
-brotli==1.1.0 ; implementation_name == 'cpython' or platform_python_implementation == 'CPython'
-    # via
-    #   aiohttp
-    #   yt-dlp
-brotlicffi==1.1.0.0 ; implementation_name != 'cpython' or platform_python_implementation != 'CPython'
-    # via
-    #   aiohttp
-    #   yt-dlp
-certifi==2025.10.5
-    # via
-    #   curl-cffi
-    #   requests
-    #   yt-dlp
+brotli==1.1.0 ; platform_python_implementation == 'CPython'
+    # via aiohttp
+brotlicffi==1.1.0.0 ; platform_python_implementation != 'CPython'
+    # via aiohttp
 cffi==2.0.0
     # via
     #   brotlicffi
-    #   curl-cffi
     #   pycares
     #   pynacl
-charset-normalizer==3.4.4
-    # via requests
 colorama==0.4.6
     # via ezcord
-curl-cffi==0.13.0 ; implementation_name == 'cpython'
-    # via yt-dlp
 ezcord==0.7.2
     # via introqbot
 frozenlist==1.8.0
@@ -52,17 +39,15 @@ frozenlist==1.8.0
     #   aiohttp
     #   aiosignal
 idna==3.11
-    # via
-    #   requests
-    #   yarl
+    # via yarl
+mafic==2.10.1
+    # via introqbot
 msgspec==0.19.0
     # via py-cord
 multidict==6.7.0
     # via
     #   aiohttp
     #   yarl
-mutagen==1.47.0
-    # via yt-dlp
 propcache==0.4.1
     # via
     #   aiohttp
@@ -73,28 +58,18 @@ pycares==4.11.0
     # via aiodns
 pycparser==2.23 ; implementation_name != 'PyPy'
     # via cffi
-pycryptodomex==3.23.0
-    # via yt-dlp
 pynacl==1.6.0
     # via py-cord
 python-dotenv==1.2.1
     # via ezcord
 pyyaml==6.0.3
     # via ezcord
-requests==2.32.5
-    # via yt-dlp
 ruff==0.14.3
 typing-extensions==4.15.0
     # via
     #   aiosqlite
     #   py-cord
-urllib3==2.5.0
-    # via
-    #   requests
-    #   yt-dlp
-websockets==15.0.1
-    # via yt-dlp
 yarl==1.22.0
-    # via aiohttp
-yt-dlp==2025.10.22
-    # via introqbot
+    # via
+    #   aiohttp
+    #   mafic
