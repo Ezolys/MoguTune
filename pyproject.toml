@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "ezcord>=0.7.2",
     "mafic>=2.10.1",
     "py-cord[speed,voice]>=2.7.0rc2",
 ]

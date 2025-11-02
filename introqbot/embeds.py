@@ -1,26 +1,6 @@
 import discord
 import localizations
-from ezcord import emb
 from localizations import _
-
-emb.set_embed_templates(
-	error_embed=discord.Embed(
-		title=":no_entry_sign:",
-		colour=discord.Colour.from_rgb(247, 206, 80),
-	),
-	success_embed=discord.Embed(
-		title=":white_check_mark:",
-		colour=discord.Colour.from_rgb(140, 176, 91),
-	),
-	warn_embed=discord.Embed(
-		title=":warning:",
-		colour=discord.Colour.from_rgb(228, 146, 16),
-	),
-	info_embed=discord.Embed(
-		title=":information_source:",
-		colour=discord.Colour.from_rgb(74, 126, 183),
-	),
-)
 
 
 class Notification:
