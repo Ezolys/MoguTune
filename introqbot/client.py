@@ -26,11 +26,11 @@ class Bot(commands.Bot):
 	async def add_nodes(self) -> None:
 		# FIXME: 仮
 		await self.pool.create_node(
-			host="lavalinkv4.serenetia.com",
-			port=443,
-			label="AjieDev",
-			password="https://dsc.gg/ajidevserver",
-			secure=True,
+			host="localhost",
+			port=2333,
+			label="localhost",
+			password="youshallnotpass",
+			secure=False,
 		)
 
 
