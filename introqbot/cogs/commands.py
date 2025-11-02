@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from pycord.localizer import t
 
 from introqbot.client import client
 from introqbot.embeds import Notification
@@ -15,7 +16,7 @@ class QuizCommands(discord.Cog):
 	@commands.cooldown(2, 5)
 	async def ping(self, ctx: discord.ApplicationContext) -> None:
 		ping = round(client.latency * 1000)
-		await ctx.respond(Notification.success(title="Ping", description=f"`{ping}` ms"))
+		await ctx.respond(Notification.success(title="Ping", description=t("cmd.ping.result", ping)))
 
 
 def setup(bot: discord.Bot) -> None:

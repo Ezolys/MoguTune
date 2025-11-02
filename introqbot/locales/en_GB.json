@@ -1,0 +1,12 @@
+{
+	"strings": {
+		"name": "English (GB)",
+		"cmd.ping.result": "Pong! (`{0}` ms)"
+	},
+	"commands": {
+		"ping": {
+			"name": "ping",
+			"description": "Ping!!!"
+		}
+	}
+}

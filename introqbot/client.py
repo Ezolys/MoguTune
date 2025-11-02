@@ -1,13 +1,18 @@
+import logging
 from os import getenv
 
 import discord
 
 from introqbot.localizations import Localization
-from introqbot.logger import logger
+from introqbot.logger import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 intents = discord.Intents.default()
 intents.voice_states = True
 client = discord.Bot(intents=intents, debug_guilds=[1118692349250392184])
+i18n = Localization(client)
 
 
 # 接続完了時
@@ -26,10 +31,11 @@ async def on_ready() -> None:
 
 def run() -> None:
 	# 言語データを読み込む
-	Localization.load_locale_data()
+	i18n.load_locale_data()
 	# Cogs の読み込み
+	# client.load_extensions("introqbot.cogs")
 	# client.load_cogs("./introqbot/cogs")
 	# コマンドのローカライズ
-	# Localization.localize_commands(client)
+	i18n.localize_commands()
 	# Bot の起動
 	client.run(getenv("TOKEN", ""))

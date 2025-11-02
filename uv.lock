@@ -335,6 +335,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "mafic" },
     { name = "py-cord", extra = ["speed", "voice"] },
+    { name = "pycord-localizer" },
 ]
 
 [package.dev-dependencies]
@@ -346,6 +347,7 @@ dev = [
 requires-dist = [
     { name = "mafic", specifier = ">=2.10.1" },
     { name = "py-cord", extras = ["speed", "voice"], specifier = ">=2.7.0rc2" },
+    { name = "pycord-localizer", specifier = ">=0.1.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -599,6 +601,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/79/2b2e723d1b929dbe7f99e80a56abb29a4f86988c1f73195d960d706b1629/pycares-4.11.0-cp314-cp314t-win32.whl", hash = "sha256:8a75a406432ce39ce0ca41edff7486df6c970eb0fe5cfbe292f195a6b8654461", size = 122235, upload-time = "2025-09-09T15:17:57.576Z" },
     { url = "https://files.pythonhosted.org/packages/93/fe/bf3b3ed9345a38092e72cd9890a5df5c2349fc27846a714d823a41f0ee27/pycares-4.11.0-cp314-cp314t-win_amd64.whl", hash = "sha256:3784b80d797bcc2ff2bf3d4b27f46d8516fe1707ff3b82c2580dc977537387f9", size = 148575, upload-time = "2025-09-09T15:17:58.699Z" },
     { url = "https://files.pythonhosted.org/packages/ce/20/c0c5cfcf89725fe533b27bc5f714dc4efa8e782bf697c36f9ddf04ba975d/pycares-4.11.0-cp314-cp314t-win_arm64.whl", hash = "sha256:afc6503adf8b35c21183b9387be64ca6810644ef54c9ef6c99d1d5635c01601b", size = 119690, upload-time = "2025-09-09T15:17:59.809Z" },
+]
+
+[[package]]
+name = "pycord-localizer"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "py-cord" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3e/3f/cb46377da5924b70ede2d867d1e4fd4f6f1c11d26f327e9beec5ed573232/pycord_localizer-0.1.3.tar.gz", hash = "sha256:590586995f79122e73da23510be619a165415fa2d8311d2aa8caef7d8ee9e498", size = 12416, upload-time = "2025-10-08T03:33:48.914Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/4b/0c72d381876ff76d9e87618c95986eb39f49037d7499b0c6ede9f226ff60/pycord_localizer-0.1.3-py3-none-any.whl", hash = "sha256:439f39caab08c42f9870ed5b8c294503a188a8c84fc6b4a5fbd96c98cc9a38cf", size = 11068, upload-time = "2025-10-08T03:33:47.648Z" },
 ]
 
 [[package]]
