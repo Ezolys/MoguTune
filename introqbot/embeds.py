@@ -67,7 +67,7 @@ class Donation:
 	async def donation(cls) -> discord.Embed:
 		embed = discord.Embed(
 			colour=discord.colour.Colour.nitro_pink(),
-			title=":pink_heart: " + t("donate.title"),
-			description=t("donate.description"),
+			title=":pink_heart: " + t("embed.donate.title"),
+			description=t("embed.donate.description"),
 		)
 		return embed
