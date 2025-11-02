@@ -17,8 +17,6 @@ class Localization:
 
 	def __init__(self, client: Bot) -> None:
 		self.client = client
-		# Pycord の多言語対応用クラスのインスタンスを生成
-		self.i18n = I18n(self.client, consider_user_locale=True, **self.LOCALE_DATA)
 
 	def load_locale_data(self) -> None:
 		# 言語一覧
@@ -51,6 +49,9 @@ class Localization:
 			# 有効な言語一覧の名称を設定する
 			if lang in self.EXISTS_LOCALE_LIST:
 				self.EXISTS_LOCALE_LIST[lang] = self.LOCALE_DATA[lang]["strings"]["name"]
+
+		# Pycord の多言語対応用クラスのインスタンスを生成
+		self.i18n = I18n(self.client, consider_user_locale=True, **self.LOCALE_DATA)
 
 	def localize_commands(self) -> None:
 		logger.info("コマンドの多言語化実行")
