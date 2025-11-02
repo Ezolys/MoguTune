@@ -33,8 +33,7 @@ def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
 	# Cogs の読み込み
-	# client.load_extensions("introqbot.cogs")
-	# client.load_cogs("./introqbot/cogs")
+	client.load_extensions("introqbot.cogs")
 	# コマンドのローカライズ
 	i18n.localize_commands()
 	# Bot の起動
