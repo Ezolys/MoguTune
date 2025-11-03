@@ -9,6 +9,7 @@ from discord.ext import commands
 from introqbot.debug_logger import DebugLogger
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
+from introqbot.quiz_session import quiz_session_manager
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -41,6 +42,20 @@ intents.guilds = True
 intents.voice_states = True
 client = Bot(intents=intents, debug_guilds=[1118692349250392184])
 i18n = Localization(client)
+
+
+# 再生終了時イベント
+@client.listen()
+async def on_track_end(event: mafic.TrackEndEvent):
+	assert isinstance(event.player, mafic.Player)
+	guild_id = event.player.guild.id
+	logger.debug(f"再生終了: {guild_id}")
+	session = quiz_session_manager.get_session(guild_id)
+	if session is None:
+		return
+	# 次の問題へ進む
+	session.NEXT.set()
+
 
 # 接続完了時
 # @client.event
