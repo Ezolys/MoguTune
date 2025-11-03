@@ -1,10 +1,12 @@
 import logging
+import traceback
 from os import getenv
 
 import discord
 import mafic
 from discord.ext import commands
 
+from introqbot.debug_logger import DebugLogger
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
 
@@ -49,8 +51,27 @@ i18n = Localization(client)
 
 
 # 準備完了時
-@client.event
+@client.listen()
 async def on_ready() -> None:
+	# 内部エラー報告機能の初期化
+	try:
+		logger.info("デバッグ用サーバー/チャンネル取得")
+		debug_gd_id = getenv("DEBUG_GUILD_ID", "")
+		debug_ch_id = getenv("DEBUG_TEXT_CHANNEL_ID", "")
+		DebugLogger.debug_guild = client.get_guild(int(debug_gd_id))
+		DebugLogger.debug_channel = await DebugLogger.debug_guild.fetch_channel(debug_ch_id)
+		if DebugLogger.debug_guild:
+			logger.info("- サーバー: %s (ID: %d)", DebugLogger.debug_guild.name, DebugLogger.debug_guild.id)
+		else:
+			logger.warning("- サーバーが見つかりません: %s", debug_gd_id)
+		if DebugLogger.debug_channel:
+			logger.info("- チャンネル: %s (ID: %d)", DebugLogger.debug_channel.name, DebugLogger.debug_channel.id)
+		else:
+			logger.warning("- チャンネルが見つかりません: %s", debug_ch_id)
+	except Exception:
+		logger.error("内部エラー報告機能の初期化に失敗")
+		logger.error(traceback.format_exc())
+
 	logger.info(f"ログイン完了: {client.user}")
 
 
