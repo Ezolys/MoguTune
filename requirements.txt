@@ -8,6 +8,7 @@ aiohttp==3.13.2
     # via
     #   mafic
     #   py-cord
+    #   pycord-localizer
 aiosignal==1.4.0
     # via aiohttp
 attrs==25.4.0
@@ -42,9 +43,13 @@ propcache==0.4.1
     #   aiohttp
     #   yarl
 py-cord==2.7.0rc2
-    # via introqbot
+    # via
+    #   introqbot
+    #   pycord-localizer
 pycares==4.11.0
     # via aiodns
+pycord-localizer==0.1.3
+    # via introqbot
 pycparser==2.23 ; implementation_name != 'PyPy'
     # via cffi
 pynacl==1.6.0
@@ -52,6 +57,8 @@ pynacl==1.6.0
 ruff==0.14.3
 typing-extensions==4.15.0
     # via py-cord
+uuid-utils==0.11.1
+    # via introqbot
 yarl==1.22.0
     # via
     #   aiohttp
