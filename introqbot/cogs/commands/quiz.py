@@ -31,11 +31,11 @@ class QuizCommands(discord.Cog):
 			# ユーザーがボイスチャンネルに接続しているかチェック
 			if ctx.user.voice is None:
 				# ボイスチャンネルに参加していない場合はエラー
-				await ctx.respond(embed=Notification.error(description=t("cmd.q.start.not_specified_voice_channel")))
+				await ctx.respond(embed=Notification.error(description=t("cmd.start.not_specified_voice_channel")))
 				return
 			if not isinstance(ctx.user.voice.channel, discord.VoiceChannel):
 				# 参加しているチャンネルがボイスチャンネルではない場合はエラー
-				await ctx.respond(embed=Notification.error(description=t("cmd.q.start.not_specified_voice_channel")))
+				await ctx.respond(embed=Notification.error(description=t("cmd.start.not_specified_voice_channel")))
 				return
 			vc = ctx.user.voice.channel
 		else:
@@ -45,7 +45,7 @@ class QuizCommands(discord.Cog):
 		session = quiz_session_manager.get_session(ctx.guild.id)
 		if session:
 			await ctx.respond(
-				embed=Notification.error(description=t("cmd.q.start.already_started", ctx.guild.get_channel(session.channel_id).mention))
+				embed=Notification.error(description=t("cmd.start.already_started", ctx.guild.get_channel(session.channel_id).mention))
 			)
 			return
 
@@ -55,8 +55,8 @@ class QuizCommands(discord.Cog):
 		# クイズ作成通知を送信する
 		await ctx.respond(
 			embed=Notification.info(
-				title=t("cmd.q.start.started.title"),
-				description=t("cmd.q.start.started.description", ctx.guild.get_channel(session.channel_id).mention),
+				title=t("cmd.start.started.title"),
+				description=t("cmd.start.started.description", ctx.guild.get_channel(session.channel_id).mention),
 			),
 			view=QuizJoinView(session_id=vc.guild.id),  # 参加ボタン
 		)
@@ -74,11 +74,9 @@ class QuizCommands(discord.Cog):
 		if session:
 			await session.end()
 			quiz_session_manager.delete_session(session.guild_id)
-			await ctx.respond(
-				embed=Notification.success(description=t("cmd.q.end.ended", ctx.guild.get_channel(session.channel_id).mention))
-			)
+			await ctx.respond(embed=Notification.success(description=t("cmd.end.ended", ctx.guild.get_channel(session.channel_id).mention)))
 		else:
-			await ctx.respond(embed=Notification.error(description=t("cmd.q.end.quiz_not_started")))
+			await ctx.respond(embed=Notification.error(description=t("cmd.end.quiz_not_started")))
 
 	@commands.slash_command()
 	@discord.guild_only()
@@ -104,16 +102,16 @@ class QuizCommands(discord.Cog):
 
 		await ctx.defer()
 
-		# msg = await ctx.send(embed=Notification.info(title=t("cmd.q.play.preparing.title"), description=t("cmd.q.preparing.loading")))
+		# msg = await ctx.send(embed=Notification.info(title=t("cmd.play.preparing.title"), description=t("cmd.q.preparing.loading")))
 
 		session = quiz_session_manager.get_session(ctx.guild.id)
 		if session is None:
-			await ctx.send_followup(embed=Notification.error(description=t("cmd.q.play.quiz_not_started")))
+			await ctx.send_followup(embed=Notification.error(description=t("cmd.play.quiz_not_started")))
 			return
 		vc: discord.VoiceChannel | None = ctx.guild.get_channel(session.channel_id)
 
 		if vc is None:
-			await ctx.send_followup(embed=Notification.error(description=t("cmd.q.start.quiz_not_started")))
+			await ctx.send_followup(embed=Notification.error(description=t("cmd.start.quiz_not_started")))
 			return
 
 		# VCへ接続
@@ -134,23 +132,21 @@ class QuizCommands(discord.Cog):
 			tracks = await player.fetch_tracks(query, search_type)
 		except Exception:
 			ec = await DebugLogger.report_internal_error(traceback.format_exc())
-			await ctx.send_followup(embed=Notification.internal_error(description=t("cmd.q.play.tracks_fetch_error"), error_code=ec))
+			await ctx.send_followup(embed=Notification.internal_error(description=t("cmd.play.tracks_fetch_error"), error_code=ec))
 			return
 
 		# プレイリスト (楽曲) が見つからない場合は
 		if not tracks:
-			await ctx.send_followup(embed=Notification.error(description=t("cmd.q.play.no_tracks_found")))
+			await ctx.send_followup(embed=Notification.error(description=t("cmd.play.no_tracks_found")))
 			return
 		# 指定されたクエリーがプレイリストではない場合
 		if isinstance(tracks, list):
-			await ctx.send_followup(embed=Notification.error(description=t("cmd.q.play.no_tracks_found")))
+			await ctx.send_followup(embed=Notification.error(description=t("cmd.play.no_tracks_found")))
 			return
 
 		# クイズ開始
 		await ctx.send_followup(
-			embed=Notification.info(
-				title=t("cmd.q.play.preparing_complete.title"), description=t("cmd.q.play.preparing_complete.description")
-			)
+			embed=Notification.info(title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"))
 		)
 		await session.play(player, tracks, q_count)
 

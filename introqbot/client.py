@@ -44,6 +44,14 @@ client = Bot(intents=intents, debug_guilds=[1118692349250392184])
 i18n = Localization(client)
 
 
+# 再生開始時イベント
+@client.listen()
+async def on_track_start(event: mafic.TrackEndEvent):
+	assert isinstance(event.player, mafic.Player)
+	guild_id = event.player.guild.id
+	logger.debug(f"再生開始: {guild_id}")
+
+
 # 再生終了時イベント
 @client.listen()
 async def on_track_end(event: mafic.TrackEndEvent):
