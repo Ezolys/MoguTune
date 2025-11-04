@@ -3,7 +3,7 @@ from discord.ext import commands
 from pycord.localizer import t
 
 from introqbot.client import client
-from introqbot.embeds import Notification
+from introqbot.embeds import EmbedsTemplates
 
 
 class GeneralCommands(discord.Cog):
@@ -16,7 +16,7 @@ class GeneralCommands(discord.Cog):
 	@commands.cooldown(2, 5)
 	async def ping(self, ctx: discord.ApplicationContext) -> None:
 		ping = round(client.latency * 1000)
-		await ctx.respond(embed=Notification.success(title="Ping", description=t("cmd.ping.result", ping)))
+		await ctx.respond(embed=EmbedsTemplates.success(title="Ping", description=t("cmd.ping.result", ping)))
 
 	@commands.slash_command()
 	@discord.guild_only()
@@ -24,11 +24,11 @@ class GeneralCommands(discord.Cog):
 	async def test_embed(self, ctx: discord.ApplicationContext) -> None:
 		await ctx.respond(
 			embeds=[
-				Notification.info(title="Test", description="Test1234"),
-				Notification.success(description="Test1234"),
-				Notification.warning(description="Test1234"),
-				Notification.error(description="Test1234"),
-				Notification.internal_error(description="Test1234"),
+				EmbedsTemplates.info(title="Test", description="Test1234"),
+				EmbedsTemplates.success(description="Test1234"),
+				EmbedsTemplates.warning(description="Test1234"),
+				EmbedsTemplates.error(description="Test1234"),
+				EmbedsTemplates.internal_error(description="Test1234"),
 			]
 		)
 

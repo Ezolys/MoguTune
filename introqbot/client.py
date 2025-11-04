@@ -8,7 +8,7 @@ from discord.ext import commands
 from pycord.localizer import t
 
 from introqbot.debug_logger import DebugLogger
-from introqbot.embeds import Notification
+from introqbot.embeds import EmbedsTemplates
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
 from introqbot.quiz_session import quiz_session_manager
@@ -109,14 +109,14 @@ async def on_application_command_error(
 	# クールダウン
 	if str(ex).startswith("You are on cooldown"):
 		await ctx.respond(
-			embed=Notification.warning(description=t("cmdmsg.cooldown_warning")),
+			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning")),
 			ephemeral=True,
 		)
 	# その他
 	else:
 		# 内部エラーを報告してメッセージを送信する
 		await ctx.respond(
-			embed=Notification.internal_error(
+			embed=EmbedsTemplates.internal_error(
 				error_code=await DebugLogger.report_internal_error("Exception: " + str(ex) + "\n\n" + traceback.format_exc())
 			)
 		)

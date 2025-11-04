@@ -4,7 +4,7 @@ import traceback
 import discord
 import uuid_utils as uuid
 
-from introqbot.embeds import Notification
+from introqbot.embeds import EmbedsTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,9 @@ class DebugLogger:
 			# エラーコードを生成
 			error_code = str(uuid.uuid7())
 			await cls.debug_channel.send(
-				embed=Notification.internal_error(description=f"エラーコード\n```{error_code}```\nトレースバック\n```{traceback_text}```")
+				embed=EmbedsTemplates.internal_error(
+					description=f"エラーコード\n```{error_code}```\nトレースバック\n```{traceback_text}```"
+				)
 			)
 		except Exception:
 			logger.error("内部エラー報告失敗")
