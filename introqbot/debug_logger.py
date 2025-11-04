@@ -26,12 +26,12 @@ class DebugLogger:
 			logger.error(traceback.format_exc())
 
 	@classmethod
-	async def report_internal_error(cls, traceback_text: str) -> str | None:
-		"""内部エラーを報告してエラーコードを返す 失敗した場合は None を返す"""
+	async def report_internal_error(cls, traceback_text: str) -> str:
+		"""内部エラーを報告してエラーコードを返す 失敗した場合は空文字を返す"""
 		try:
 			if cls.debug_guild is None or cls.debug_channel is None:
 				logger.warning("内部エラー報告中止 - デバッグ用サーバーまたはチャンネルが設定されていません")
-				return None
+				return ""
 			# エラーコードを生成
 			error_code = str(uuid.uuid7())
 			await cls.debug_channel.send(
@@ -42,6 +42,6 @@ class DebugLogger:
 		except Exception:
 			logger.error("内部エラー報告失敗")
 			logger.error(traceback.format_exc())
-			return None
+			return ""
 		else:
 			return error_code
