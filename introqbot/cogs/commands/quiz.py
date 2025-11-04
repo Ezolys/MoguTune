@@ -72,7 +72,7 @@ class QuizCommands(discord.Cog):
 		if voice_channel.guild.voice_client:
 			# 既に接続している場合は一度切断する
 			await voice_channel.guild.voice_client.disconnect()
-			await asyncio.sleep(1)
+			await asyncio.sleep(2)
 		player = await voice_channel.connect(cls=mafic.Player)
 
 		# 検索タイプ
@@ -109,13 +109,13 @@ class QuizCommands(discord.Cog):
 			return
 
 		# クイズセッションを新規作成
-		session = quiz_session_manager.create_session(voice_channel.guild.id, voice_channel.id, player)
+		session = quiz_session_manager.create_session(ctx.guild.id, voice_channel.id, player)
 		# VCに参加しているユーザーをプレイヤーとして追加する
-		for u in voice_channel.members:
+		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
 			# 自分自身とボットは除外
-			if u.id == self.bot.user.id or u.bot:
+			if u == self.bot.user.id or (await ctx.guild.fetch_member(u)).bot:
 				continue
-			session.add_player(u.id)
+			session.add_player(u)
 
 		# クイズ開始
 		await msg.edit(
@@ -123,7 +123,11 @@ class QuizCommands(discord.Cog):
 				title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"), icon="☑️"
 			)
 		)
-		await session.play(tracks, q_count)
+		play_result = await session.play(tracks, q_count)
+
+		# 内部エラー
+		if isinstance(play_result, str):
+			await msg.edit(embed=EmbedsTemplates.internal_error(error_code=play_result))
 
 		# ボイスチャンネルから切断する
 		await voice_channel.guild.voice_client.disconnect()

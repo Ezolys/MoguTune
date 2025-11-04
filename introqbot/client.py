@@ -11,7 +11,6 @@ from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
-from introqbot.quiz_session import quiz_session_manager
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -44,43 +43,6 @@ intents.guilds = True
 intents.voice_states = True
 client = Bot(intents=intents, debug_guilds=[1118692349250392184])
 i18n = Localization(client)
-
-
-# ボイスチャンネルステータス変更時 (参加/退出等) イベント
-@client.listen()
-async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
-	session = quiz_session_manager.get_session(member.guild.id)
-	# 対象のサーバーでクイズが行われている場合はメンバーのチェックを実行する
-	if session is None or after.channel is None:
-		return
-	# クイズが行われているボイスチャンネルの場合
-	if after.channel.id == session.channel_id:
-		# 自分自身とボットは除外
-		if member.id == client.user.id or member.bot:
-			return
-		# 参加待ちの列へ追加する
-		session.add_queue(member.id)
-
-
-# 再生開始時イベント
-@client.listen()
-async def on_track_start(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生開始イベント: {guild_id}")
-
-
-# 再生終了時イベント
-@client.listen()
-async def on_track_end(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生終了イベント: {guild_id}")
-	session = quiz_session_manager.get_session(guild_id)
-	if session is None:
-		return
-	# 次の問題へ進む
-	session.NEXT.set()
 
 
 # アプリケーションコマンド実行時のイベント
