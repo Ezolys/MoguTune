@@ -117,8 +117,8 @@ class QuizAnswerSelectView(discord.ui.View):
 					description=t("view.q.answer_select.correct.description", result.title),
 					icon="✅",
 				),
-				ephemeral=True,
-				delete_after=2,
+				# ephemeral=True,
+				delete_after=3,
 			)
 
 
@@ -353,6 +353,14 @@ class QuizSession:
 
 			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
 			self.q_tracks = random.sample(tracks.tracks, len(tracks.tracks))[:q_count]
+
+			# 楽曲数が2曲未満の場合はエラーメッセージを返す
+			if len(self.q_original_tracks) < 2:
+				await self.voice_channel.send(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
+				# 終了
+				self.playing = False
+				self.reset()
+				return False
 
 			# 有効なトラック数が問題数+1よりも少ない場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < q_count:
@@ -600,19 +608,6 @@ class QuizSession:
 			correct_track = self.pl.current
 			# 正解
 			player.correct()
-			# 全プレイヤーに表示される正解メッセージを送信する
-			await self.voice_channel.send(
-				embed=EmbedsTemplates.success(
-					title=t("msg.q.answer.correct.title"),
-					description=t(
-						"msg.q.answer.correct.description",
-						(self.guild.get_member(user_id) or await self.guild.fetch_member(user_id)).mention,
-						correct_track.title,
-					),
-					icon="✅",
-				),
-				delete_after=3,
-			)
 			# 次の問題へ進む
 			logger.debug("- 次の問題へ")
 			# self.NEXT.set()
