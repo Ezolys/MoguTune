@@ -135,7 +135,7 @@ class QuizCommands(discord.Cog):
 			await ctx.send_followup(embed=Notification.internal_error(description=t("cmd.play.tracks_fetch_error"), error_code=ec))
 			return
 
-		# プレイリスト (楽曲) が見つからない場合は
+		# プレイリスト (楽曲) が見つからない場合
 		if not tracks:
 			await ctx.send_followup(embed=Notification.error(description=t("cmd.play.no_tracks_found")))
 			return

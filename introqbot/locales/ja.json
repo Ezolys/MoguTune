@@ -39,6 +39,8 @@
 		"msg.q.start.description": "解答ボタンを押して解答！",
 		"msg.q.answering.title": "💭 解答中...",
 		"msg.q.answering.description": "{0} さんが解答中です...",
+		"msg.q.answering.already.title": "⚠️ 既に解答中です！",
+		"msg.q.answering.already.description": "{0} さんが既に解答中です！",
 		"msg.q.end.title": "🏁 クイズ終了",
 		"msg.q.end.description": "＜結果＞\n{0}",
 		"msg.q.answer.title": "🗨️ 解答",

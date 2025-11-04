@@ -116,14 +116,16 @@ class QuizAnswerButtonView(discord.ui.View):
 	# 解答ボタン
 	async def answer_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答ボタンクリック: {self.session_id}")
+
+		await interaction.response.defer()
+
 		# セッションが存在するかチェック
 		if self.session is None:
 			await interaction.respond(embed=Notification.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
 			return
 
 		# 再生停止&解答セレクター送信
-		await self.session.answer_pause(interaction.user.id)
-		await interaction.response.pong()
+		await self.session.answer_pause(interaction, interaction.user.id)
 
 
 @dataclass
@@ -172,6 +174,8 @@ class QuizSession:
 
 	answering_player: QuizPlayer | None = None
 	"""現在解答中のプレイヤー"""
+	q_number: int = 0
+	"""問題番号"""
 
 	q_original_tracks: list[mafic.Track] | None = None
 	"""問題の元のトラック一覧"""
@@ -228,8 +232,23 @@ class QuizSession:
 		[player.incorrect_reset() for player in self.players]
 
 	def reset(self) -> None:
-		"""全プレイヤーのポイントと不正解フラグをリセット"""
+		"""クイズセッションをリセット"""
+		# 全プレイヤーのポイントと不正解フラグをリセット
 		[player.reset() for player in self.players]
+		# 各変数をリセット
+		self.pl = None
+		self.q_original_tracks = []
+		self.q_tracks = []
+		self.q_number = 0
+		self.answering_player = None
+		self.playing = False
+
+	def get_player(self, user_id: int) -> QuizPlayer | None:
+		"""プレイヤーを取得"""
+		for player in self.players:
+			if player.id == user_id:
+				return player
+		return None
 
 	def get_answer_tracks(self) -> list[mafic.Track]:
 		"""解答候補のトラック一覧を生成"""
@@ -270,8 +289,8 @@ class QuizSession:
 		logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
 		self.playing = True
-
 		self.pl = player
+		self.q_number = 0
 
 		self.guild = player.guild
 		if self.guild is None:
@@ -293,13 +312,15 @@ class QuizSession:
 		)
 		await asyncio.sleep(3)
 
-		for i, q in enumerate(self.q_tracks):
+		for i, q in enumerate(self.q_tracks, 1):
 			if not self.playing:
 				return
 
+			self.q_number = i
+
 			# 問題開始メッセージを送信
 			await self.voice_channel.send(
-				embed=Notification.info(title=t("msg.q.start.title", i + 1), description=t("msg.q.start.description")),
+				embed=Notification.info(title=t("msg.q.start.title", i), description=t("msg.q.start.description")),
 				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
 			)
 			await asyncio.sleep(3)
@@ -315,8 +336,6 @@ class QuizSession:
 			# 再生停止
 			# await player.stop()
 
-		self.pl = None
-
 		# ランキングテキストを生成
 		# TODO: ただの一覧ではなく順位をつけて表示するようにする
 		ranking = "- " + "\n- ".join([self.guild.get_member(p.id).mention + ": `" + str(p.point) + "`" for p in self.players])
@@ -326,39 +345,84 @@ class QuizSession:
 		# 順番待ちプレイヤーを追加する
 		self.join_queued_players()
 
-	async def answer_pause(self, user_id: int) -> None:
+		# リセット
+		self.reset()
+
+	async def answer_pause(self, interaction: discord.Interaction, user_id: int) -> None:
 		"""再生を一時停止して解答の選択肢を送信する"""
 		logger.debug(f"回答開始: {user_id}")
 		if self.pl is None:
-			await DebugLogger.report_internal_error("Session.player is None")
+			await interaction.followup.send(
+				embed=Notification.internal_error(
+					description="Session.player is None", error_code=await DebugLogger.report_internal_error("Session.player is None")
+				),
+				ephemeral=True,
+			)
 			return
 		if self.pl.current is None:
-			await DebugLogger.report_internal_error("Session.player.current is None")
+			await interaction.followup.send(
+				embed=Notification.internal_error(
+					description="Session.player.current is None",
+					error_code=await DebugLogger.report_internal_error("Session.player.current is None"),
+				),
+				ephemeral=True,
+			)
 			return
 		if user_id not in [player.id for player in self.players]:
-			await DebugLogger.report_internal_error("User is not in players")
+			await interaction.followup.send(
+				embed=Notification.internal_error(
+					description="User is not in players", error_code=await DebugLogger.report_internal_error("User is not in players")
+				),
+				ephemeral=True,
+			)
 			return
 
 		if self.answering_player is not None:
+			await interaction.followup.send(
+				embed=Notification.warning(
+					title=t("msg.q.answering.title"),
+					description=t("msg.q.answering.already.description", self.guild.get_member(self.answering_player.id)),
+				),
+				ephemeral=True,
+			)
+			return
+
+		# 解答中プレイヤーを設定
+		self.answering_player = self.get_player(user_id)
+		if self.answering_player is None:
+			await interaction.followup.send(
+				embed=Notification.internal_error(
+					description="Answering Player not found",
+					error_code=await DebugLogger.report_internal_error("Answering Player not found"),
+				),
+				ephemeral=True,
+			)
 			return
 
 		await self.voice_channel.send(
 			embed=Notification.info(
-				title=t("msg.q.answering.title"), description=t("msg.q.answering.description", self.guild.get_member(user_id).name)
+				title=t("msg.q.answering.title"), description=t("msg.q.answering.description", self.guild.get_member(user_id).mention)
 			)
 		)
+
+		# 一時停止する
+		await self.pl.pause()
+
 		# 解答の選択肢セレクターを送信する
-		msg = await self.voice_channel.send(
+		msg = await interaction.followup.send(
 			embed=Notification.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description")),
 			view=QuizAnswerSelectView(self.guild_id),
+			delete_after=5,  # 5秒後に自動削除
+			ephemeral=True,
 		)
-		await self.pl.pause()
-		await asyncio.sleep(5)
-		await msg.delete()  # 選択肢メッセージを削除する
-		await asyncio.sleep(1)
+		# await asyncio.sleep(6)
+		# await msg.delete()  # 選択肢メッセージを削除する
+		# await asyncio.sleep(1)
+		# 解答中プレイヤーをリセット
+		# self.answering_player = None
 		# 再生を再開
-		self.NEXT.clear()
-		await self.pl.pause(pause=False)
+		# self.NEXT.clear()
+		# await self.pl.pause(pause=False)
 
 	async def answer(self, user_id: int, answer_id: str) -> bool | None:
 		"""回答する"""
@@ -374,7 +438,10 @@ class QuizSession:
 			return None
 
 		# 回答者を取得
-		player = next(player for player in self.players if player.id == user_id)
+		player = self.get_player(user_id)
+		if player is None:
+			await DebugLogger.report_internal_error("Player not found")
+			return None
 
 		if self.pl.current.uri == answer_id:
 			# 正解
@@ -386,7 +453,7 @@ class QuizSession:
 		player.incorrect()
 		await asyncio.sleep(1)
 		# 再生を再開
-		self.NEXT.clear()
+		# self.NEXT.clear()
 		await self.pl.pause(pause=False)
 		return False
 
