@@ -3,6 +3,7 @@ import logging
 import random
 import traceback
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import discord
 import mafic
@@ -11,6 +12,9 @@ from pycord.localizer import t
 from introqbot.client import client
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+
+if TYPE_CHECKING:
+	from introqbot.quiz_session import QuizSession
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -59,12 +63,7 @@ class QuizNextQButtonView(discord.ui.View):
 	def __init__(self, session_id: int, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 		self.session_id = session_id
-		self.session = quiz_session_manager.get_session(session_id)
-
-		# セッションが存在するかチェック
-		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
-			return
+		self.session = quiz_session_manager.get_session(session_id)  # コールバックでNoneチェックするのでここではそのまま
 
 		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️")
 		self.next_q_button.callback = self.next_q_button_callback
@@ -74,6 +73,7 @@ class QuizNextQButtonView(discord.ui.View):
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
+		self.session = quiz_session_manager.get_session(self.session_id)
 		# セッションが存在するかチェック
 		if self.session is None:
 			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
@@ -108,9 +108,8 @@ class QuizAnswerSelectView(discord.ui.View):
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
 
-		# セッションが存在するかチェック
 		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
+			logger.debug("QuizAnswerSelectView.session is None")
 			return
 
 		logger.debug("Answer Select Options")
@@ -137,6 +136,8 @@ class QuizAnswerSelectView(discord.ui.View):
 	# 解答選択肢
 	async def answer_select_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答選択肢クリック: {self.session_id}")
+
+		self.session = quiz_session_manager.get_session(self.session_id)
 		# セッションが存在するかチェック
 		if self.session is None:
 			_ = await interaction.response.send_message(
@@ -200,11 +201,6 @@ class QuizAnswerButtonView(discord.ui.View):
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
 
-		# セッションが存在するかチェック
-		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
-			return
-
 		self.answer_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.answer_button.label"), emoji="💭")
 		self.answer_button.callback = self.answer_button_callback
 		self.add_item(self.answer_button)
@@ -215,6 +211,7 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		await interaction.response.defer()
 
+		self.session = quiz_session_manager.get_session(self.session_id)
 		# セッションが存在するかチェック
 		if self.session is None:
 			# セッションが見つからない場合はエラーメッセージを送信する
@@ -278,7 +275,7 @@ class QuizSession:
 	channel_id: int
 	"""クイズが実行されているボイスチャンネルのID"""
 
-	pl: mafic.Player
+	pl: "QuizPlayerNode"
 	"""プレイヤー (Mafic)"""
 
 	players: list[QuizPlayer] = field(default_factory=list)
@@ -752,13 +749,21 @@ class QuizSession:
 		return None
 
 
+class QuizPlayerNode(mafic.Player):
+	"""クイズセッション情報を持つPlayerクラス"""
+
+	def __init__(self, client: discord.Client, channel: discord.VoiceChannel) -> None:
+		super().__init__(client, channel)
+		self.quiz_session: QuizSession | None = None
+
+
 @dataclass
 class QuizSessionManager:
 	"""クイズのセッションマネージャー"""
 
 	sessions: dict[int, QuizSession] = field(default_factory=dict)
 
-	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player) -> QuizSession:
+	def create_session(self, guild_id: int, channel_id: int, player: QuizPlayerNode) -> QuizSession:
 		"""セッションを新規作成"""
 		logger.debug(f"セッション新規作成: {guild_id}/{channel_id}")
 		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player)
@@ -804,19 +809,19 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 
 # 再生開始時イベント
 @client.listen()
-async def on_track_start(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
+async def on_track_start(event: mafic.TrackStartEvent) -> None:
+	if not isinstance(event.player, QuizPlayerNode):
+		return
 	guild_id = event.player.guild.id
 	logger.debug(f"再生開始イベント: {guild_id}")
 
 
 # 再生終了時イベント
 @client.listen()
-async def on_track_end(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生終了イベント: {guild_id}")
-	session = quiz_session_manager.get_session(guild_id)
+async def on_track_end(event: mafic.TrackEndEvent) -> None:
+	if not isinstance(event.player, QuizPlayerNode):
+		return
+	session = event.player.quiz_session
 	if session is None:
 		return
 	# 次の問題へ進む

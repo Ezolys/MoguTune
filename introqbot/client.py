@@ -1,6 +1,6 @@
 import logging
 import traceback
-from os import getenv
+from os import getenv, walk
 
 import discord
 import mafic
@@ -17,24 +17,26 @@ logger = logging.getLogger(__name__)
 
 
 class Bot(commands.Bot):
-	def __init__(self, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
-
-		intents = discord.Intents.default()
-		intents.voice_states = True
-
+	def __init__(self, **kwargs) -> None:
+		super().__init__(**kwargs)
 		# Lavalink
 		self.pool = mafic.NodePool(self)
 		self.loop.create_task(self.add_nodes())
 
 	async def add_nodes(self) -> None:
-		# FIXME: 仮
+		"""Add a node to the node pool."""
+		host = getenv("LAVALINK_HOST", "localhost")
+		port = int(getenv("LAVALINK_PORT", 2333))
+		password = getenv("LAVALINK_PASSWORD", "youshallnotpass")
+		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
+
+		logger.info("Lavalinkノード追加: %s:%d", host, port)
 		await self.pool.create_node(
-			host="localhost",
-			port=2333,
-			label="localhost",
-			password="youshallnotpass",
-			secure=False,
+			host=host,
+			port=port,
+			label=f"{host}-{port}",
+			password=password,
+			secure=secure,
 		)
 
 
@@ -84,19 +86,17 @@ async def on_application_command_error(
 	logger.error("アプリケーションコマンド実行エラー: %s", cmd_name)
 	logger.error(ex)
 
-	# クールダウン
-	if str(ex).startswith("You are on cooldown"):
+	if isinstance(ex, commands.CommandOnCooldown):
 		await ctx.respond(
 			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning")),
 			ephemeral=True,
 		)
-	# その他
 	else:
+		traceback_text = "".join(traceback.format_exception(type(ex), ex, ex.__traceback__))
 		# 内部エラーを報告してメッセージを送信する
 		await ctx.respond(
-			embed=EmbedsTemplates.internal_error(
-				error_code=await DebugLogger.report_internal_error("Exception: " + str(ex) + "\n\n" + traceback.format_exc())
-			)
+			embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback_text)),
+			ephemeral=True,
 		)
 
 
@@ -114,18 +114,22 @@ async def on_ready() -> None:
 	# 内部エラー報告機能の初期化
 	try:
 		logger.info("デバッグ用サーバー/チャンネル取得")
-		debug_gd_id = getenv("DEBUG_GUILD_ID", "")
-		debug_ch_id = getenv("DEBUG_TEXT_CHANNEL_ID", "")
-		DebugLogger.debug_guild = client.get_guild(int(debug_gd_id))
-		DebugLogger.debug_channel = await DebugLogger.debug_guild.fetch_channel(debug_ch_id)
-		if DebugLogger.debug_guild:
-			logger.info("- サーバー: %s (ID: %d)", DebugLogger.debug_guild.name, DebugLogger.debug_guild.id)
-		else:
-			logger.warning("- サーバーが見つかりません: %s", debug_gd_id)
-		if DebugLogger.debug_channel:
-			logger.info("- チャンネル: %s (ID: %d)", DebugLogger.debug_channel.name, DebugLogger.debug_channel.id)
-		else:
-			logger.warning("- チャンネルが見つかりません: %s", debug_ch_id)
+		debug_gd_id_str = getenv("DEBUG_GUILD_ID")
+		debug_ch_id_str = getenv("DEBUG_TEXT_CHANNEL_ID")
+
+		if debug_gd_id_str and debug_gd_id_str.isdigit():
+			debug_gd_id = int(debug_gd_id_str)
+			DebugLogger.debug_guild = client.get_guild(debug_gd_id)
+			if DebugLogger.debug_guild:
+				logger.info("- サーバー: %s (ID: %d)", DebugLogger.debug_guild.name, DebugLogger.debug_guild.id)
+				if debug_ch_id_str and debug_ch_id_str.isdigit():
+					debug_ch_id = int(debug_ch_id_str)
+					DebugLogger.debug_channel = await DebugLogger.debug_guild.fetch_channel(debug_ch_id)
+					if DebugLogger.debug_channel:
+						logger.info("- チャンネル: %s (ID: %d)", DebugLogger.debug_channel.name, DebugLogger.debug_channel.id)
+
+		if not DebugLogger.debug_guild or not DebugLogger.debug_channel:
+			logger.warning("デバッグ用のサーバーまたはチャンネルが正しく設定されていません。")
 	except Exception:
 		logger.error("内部エラー報告機能の初期化に失敗")
 		logger.error(traceback.format_exc())
@@ -137,7 +141,10 @@ def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
 	# Cogs の読み込み
-	client.load_extensions("introqbot.cogs.commands")
+	for path, _, files in walk("introqbot/cogs/commands"):
+		for filename in files:
+			if filename.endswith(".py"):
+				client.load_extension(f"{path.replace('/', '.')}.{filename[:-3]}")
 	# コマンドのローカライズ
 	i18n.localize_commands()
 	# Bot の起動

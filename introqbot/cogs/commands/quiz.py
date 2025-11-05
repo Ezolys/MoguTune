@@ -4,13 +4,12 @@ import traceback
 
 import discord
 import mafic
-from discord import SlashCommandGroup
 from discord.ext import commands
 from pycord.localizer import t
 
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
-from introqbot.quiz_session import QuizJoinView, quiz_session_manager
+from introqbot.quiz_session import QuizPlayerNode, quiz_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,7 @@ class QuizCommands(discord.Cog):
 			# 既に接続している場合は一度切断する
 			await voice_channel.guild.voice_client.disconnect()
 			await asyncio.sleep(2)
-		player = await voice_channel.connect(cls=mafic.Player)
+		player: QuizPlayerNode = await voice_channel.connect(cls=QuizPlayerNode)
 
 		# 検索タイプ
 		search_type = mafic.SearchType[search_type]
@@ -110,6 +109,7 @@ class QuizCommands(discord.Cog):
 
 		# クイズセッションを新規作成
 		session = quiz_session_manager.create_session(ctx.guild.id, voice_channel.id, player)
+		player.quiz_session = session
 		# VCに参加しているユーザーをプレイヤーとして追加する
 		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
 			# 自分自身とボットは除外
