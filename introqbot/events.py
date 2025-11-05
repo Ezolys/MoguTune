@@ -129,12 +129,21 @@ class EventListeners(commands.Cog):
 	async def on_track_end(self, event: mafic.TrackEndEvent) -> None:
 		assert isinstance(event.player, mafic.Player)
 		guild_id = event.player.guild.id
-		logger.debug(f"再生終了イベント: {guild_id} - {event.reason}")
 		session = quiz_session_manager.get_session(guild_id)
 		if session is None:
 			return
-		# 次の問題へ進む
-		session.NEXT.set()
+
+		logger.debug(f"再生終了イベント: {guild_id} - {event.reason} - SFX再生中: {session.is_playing_sfx}")
+
+		# 効果音の再生が終了した場合
+		if session.is_playing_sfx and session.sfx_player:
+			if event.reason == mafic.TrackEndReason.FINISHED:
+				session.sfx_player.sfx_finished.set()
+			return
+
+		# クイズの曲が終了した場合
+		if not session.is_playing_sfx:
+			session.NEXT.set()
 
 
 def setup(bot: discord.Bot) -> None:

@@ -3,6 +3,7 @@ import logging
 import random
 import traceback
 from dataclasses import dataclass, field
+from os import getenv
 
 import discord
 import mafic
@@ -11,6 +12,7 @@ from pycord.localizer import t
 from introqbot.client import client
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.sfx_player import SoundEffectPlayer
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -311,6 +313,11 @@ class QuizSession:
 	NEXT: asyncio.Event = field(default_factory=asyncio.Event)
 	ANSWERED: asyncio.Event = field(default_factory=asyncio.Event)
 
+	sfx_player: SoundEffectPlayer | None = None
+	"""効果音プレイヤー"""
+	is_playing_sfx: bool = False
+	"""効果音を再生中かどうか"""
+
 	def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
 		if self.is_player_joined(user_id):
@@ -425,6 +432,9 @@ class QuizSession:
 			self.playing = True
 			self.reset()
 
+			# 効果音プレイヤーを初期化
+			self.sfx_player = SoundEffectPlayer(self.pl)
+
 			self.guild = client.get_guild(self.guild_id)  # fetch
 			if self.guild is None:
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Guild not found")
@@ -523,6 +533,11 @@ class QuizSession:
 				# タイトルを更新
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
+
+				if self.sfx_player and (sfx_path := getenv("SFX_QUIZ_Q")):
+					self.is_playing_sfx = True
+					await self.sfx_player.play_sfx(sfx_path)
+					self.is_playing_sfx = False
 
 				# 解答ができる状態にする
 				self.can_answered = True
@@ -659,6 +674,11 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
+		if self.sfx_player and (sfx_path := getenv("SFX_QUIZ_A")):
+			self.is_playing_sfx = True
+			await self.sfx_player.play_sfx(sfx_path)
+			self.is_playing_sfx = False
+
 		as_msg = await self.voice_channel.send(
 			embed=EmbedsTemplates.info(
 				title=t("msg.q.answering.title"),
@@ -738,6 +758,10 @@ class QuizSession:
 			correct_track = self.pl.current
 			# 正解
 			player.correct()
+			if self.sfx_player and (sfx_path := getenv("SFX_QUIZ_CORRECT")):
+				self.is_playing_sfx = True
+				await self.sfx_player.play_sfx(sfx_path)
+
 			await asyncio.sleep(1)
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			logger.debug("- 正解後再生開始")
@@ -751,6 +775,11 @@ class QuizSession:
 		# 不正解
 		logger.debug("- 不正解")
 		player.incorrect()
+		if self.sfx_player and (sfx_path := getenv("SFX_QUIZ_INCORRECT")):
+			self.is_playing_sfx = True
+			await self.sfx_player.play_sfx(sfx_path)
+			self.is_playing_sfx = False
+
 		self.ANSWERED.set()
 		logger.debug("- 再生再開")
 		await self.pl.pause(pause=False)
