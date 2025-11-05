@@ -3,6 +3,7 @@ import logging
 import random
 import traceback
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import discord
 import mafic
@@ -278,13 +279,22 @@ class QuizPlayer:
 class QuizSession:
 	"""クイズのセッション"""
 
+	PL_VOLUME: ClassVar[int] = 50
+
 	guild_id: int
 	"""クイズが実行されているサーバーのID"""
 	channel_id: int
 	"""クイズが実行されているボイスチャンネルのID"""
 
+	# TODO: プレイヤーごと分離したい
 	pl: mafic.Player
 	"""プレイヤー (Mafic)"""
+	current_track: mafic.Track | None = None
+	"""再生中のトラック (SE除く)"""
+	se_playing: bool = False
+	"""効果音再生中かどうか"""
+	SE_PLAYING_EVENT: asyncio.Event = field(default_factory=asyncio.Event)
+	"""効果音再生中イベント"""
 
 	players: list[QuizPlayer] = field(default_factory=list)
 	"""参加するプレイヤーの一覧"""
@@ -310,6 +320,39 @@ class QuizSession:
 
 	NEXT: asyncio.Event = field(default_factory=asyncio.Event)
 	ANSWERED: asyncio.Event = field(default_factory=asyncio.Event)
+
+	async def play_music(
+		self,
+		track: mafic.Track,
+		start_time: int | None = None,
+		end_time: int | None = None,
+		volume: int | None = None,
+		replace: bool = True,
+		pause: bool | None = None,
+	):
+		"""音楽を再生する"""
+		await self.pl.play(track, start_time=start_time, end_time=end_time, volume=volume, replace=replace, pause=pause)
+
+	async def play_se(self, key: str) -> None:
+		"""効果音を再生する"""
+		if self.pl is not None and self.pl.guild is not None and self.pl.guild.voice_client is not None:
+			is_playing = self.pl.current is not None
+			if self.pl.current is not None:
+				# 音楽が再生中の場合は一時停止
+				await self.pl.pause()
+
+			self.se_playing = True
+
+			se = quiz_session_manager.se[key]
+			if se is not None:
+				logger.debug(f"効果音再生: {self.pl.guild.id} | {se.title}")
+				self.SE_PLAYING_EVENT.clear()
+				await self.pl.play(se, replace=False)
+				await self.SE_PLAYING_EVENT.wait()
+
+			if is_playing:
+				# 元々再生中だった場合は再生を再開
+				await self.pl.resume()
 
 	def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -377,10 +420,10 @@ class QuizSession:
 			return []
 		if self.pl is None:
 			return []
-		if self.pl.current is None:
+		if self.current_track is None:
 			return []
 
-		q_track = self.pl.current
+		q_track = self.current_track
 		# 正解の曲を除いたリストを作成
 		other_tracks = [t for t in self.q_original_tracks if t.uri != q_track.uri]
 		# ダミーの選択肢を4つランダムにサンプリング
@@ -394,7 +437,7 @@ class QuizSession:
 		"""再生中の楽曲を取得する"""
 		if self.pl is None:
 			return None
-		return self.pl.current
+		return self.current_track
 
 	def get_track_from_uri(self, uri: str) -> mafic.Track | None:
 		"""URIからトラックを取得する"""
@@ -524,13 +567,16 @@ class QuizSession:
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
 
+				# SE再生
+				await self.play_se("QUIZ_SE_Q")
+
 				# 解答ができる状態にする
 				self.can_answered = True
 
 				logger.debug("- 再生開始")
 
 				# 再生
-				await self.pl.play(q)
+				await self.play_music(q, volume=self.PL_VOLUME)
 				await self.NEXT.wait()  # 待機
 				await self.pl.pause()  # 念の為一時停止
 
@@ -598,7 +644,7 @@ class QuizSession:
 			)
 			return
 		# 再生中ではない場合
-		if self.pl.current is None:
+		if self.current_track is None:
 			await interaction.followup.send(
 				embed=EmbedsTemplates.warning(
 					description=t("msg.q.answering.not_playing.description"),
@@ -659,6 +705,14 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
+		# 一時停止する
+		self.ANSWERED.clear()
+		logger.debug("- 一時停止")
+		await self.pl.pause()
+
+		# SE再生
+		await self.play_se("QUIZ_SE_A")
+
 		as_msg = await self.voice_channel.send(
 			embed=EmbedsTemplates.info(
 				title=t("msg.q.answering.title"),
@@ -668,11 +722,6 @@ class QuizSession:
 				icon="💭",
 			)
 		)
-
-		# 一時停止する
-		self.ANSWERED.clear()
-		logger.debug("- 一時停止")
-		await self.pl.pause()
 
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(
@@ -692,13 +741,12 @@ class QuizSession:
 			if self.answering_player:
 				self.answering_player.incorrect()
 		finally:
+			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
+			if not self.NEXT.is_set():
+				logger.debug("- 再生再開")
+				await self.pl.resume()
 			# 解答者をリセット (正解/不正解/タイムアウトいずれの場合も)
 			self.answering_player = None
-			await asyncio.sleep(1)
-			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
-			# if not self.NEXT.is_set():
-			# 	logger.debug("- 再生再開")
-			# 	await self.pl.pause(pause=False)
 
 		# 解答中メッセージを削除
 		try:
@@ -716,7 +764,7 @@ class QuizSession:
 		if self.pl is None:
 			await DebugLogger.report_internal_error("Session.player is None")
 			return None
-		if self.pl.current is None:
+		if self.current_track is None:
 			await DebugLogger.report_internal_error("Session.player.current is None")
 			return None
 		if user_id not in [player.id for player in self.players]:
@@ -731,17 +779,19 @@ class QuizSession:
 			self.answering_player = None
 			return None
 
-		if self.pl.current.uri == answer:
+		if self.current_track.uri == answer:
 			logger.debug("- 正解")
 			# 解答ができない状態にする
 			self.can_answered = False
-			correct_track = self.pl.current
+			correct_track = self.current_track
 			# 正解
 			player.correct()
-			await asyncio.sleep(1)
+			# SE再生
+			await self.play_se("QUIZ_SE_CORRECT")
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
+			await asyncio.sleep(1)
 			logger.debug("- 正解後再生開始")
-			await self.pl.update(position=0, end_time=None, pause=False)
+			await self.pl.update(position=0, end_time=None, volume=self.PL_VOLUME, pause=False)
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()
@@ -751,9 +801,11 @@ class QuizSession:
 		# 不正解
 		logger.debug("- 不正解")
 		player.incorrect()
+		# SE再生
+		await self.play_se("QUIZ_SE_INCORRECT")
 		self.ANSWERED.set()
 		logger.debug("- 再生再開")
-		await self.pl.pause(pause=False)
+		await self.pl.resume()
 		# 解答ができる状態にする
 		self.can_answered = True
 		return None
@@ -764,6 +816,26 @@ class QuizSessionManager:
 	"""クイズのセッションマネージャー"""
 
 	sessions: dict[int, QuizSession] = field(default_factory=dict)
+	"""セッションの一覧"""
+
+	se: dict[str, mafic.Track | None] = field(
+		default_factory=lambda: {
+			"QUIZ_SE_CORRECT": None,
+			"QUIZ_SE_INCORRECT": None,
+			"QUIZ_SE_Q": None,
+			"QUIZ_SE_A": None,
+		}
+	)
+	# DEFAULT_VOLUME: float = 0.5
+	# se: dict[str, tuple[Path, float]] = field(
+	# 	default_factory=lambda: {
+	# 		"QUIZ_SE_CORRECT": (Path("./introqbot/resources/se/クイズ正解1.mp3"), 0.5),
+	# 		"QUIZ_SE_INCORRECT": (Path("./introqbot/resources/se/クイズ不正解1.mp3"), 0.5),
+	# 		"QUIZ_SE_Q": (Path("./introqbot/resources/se/クイズ出題1.mp3"), 0.5),
+	# 		"QUIZ_SE_A": (Path("./introqbot/resources/se/クイズ早押しボタン2.mp3"), 0.5),
+	# 	}
+	# )
+	"""SEのトラック一覧"""
 
 	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player) -> QuizSession:
 		"""セッションを新規作成"""
@@ -783,48 +855,22 @@ class QuizSessionManager:
 		"""
 		return self.sessions.get(guild_id)
 
+	def set_se(self, key: str, track: mafic.Track) -> None:
+		"""効果音ファイルを設定する"""
+		if key not in self.se:
+			logger.warning(f"存在しない効果音のキーが指定されています: {key}")
+		self.se[key] = track
 
-quiz_session_manager = QuizSessionManager()
-
-
-# ボイスチャンネルステータス変更時 (参加/退出等) イベント
-@client.listen()
-async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
-	session = quiz_session_manager.get_session(member.guild.id)
-	# 対象のサーバーでクイズが行われている場合はメンバーのチェックを実行する
-	if session is None:
-		return
-
-	# クイズが行われているボイスチャンネルに参加した
-	if after.channel is not None and after.channel.id == session.channel_id:
-		# 自分自身とボットは除外
-		if member.id == client.user.id or member.bot:
-			return
-		# 参加待ちの列へ追加する
-		session.add_queue(member.id)
-	# クイズが行われているボイスチャンネルから退出した
-	elif before.channel is not None and after.channel is None and before.channel.id == session.channel_id:
-		# プレイヤーから削除する
-		session.remove_player(member.id)
-		session.remove_queue(member.id)
+	# def set_se(self, key: str, path: str, volume: float = DEFAULT_VOLUME) -> None:
+	# 	"""効果音ファイルを設定する"""
+	# 	if key not in self.se:
+	# 		logger.warning(f"存在しない効果音のキーが指定されています: {key}")
+	# 	self.se[key] = (Path(path), volume)
 
 
-# 再生開始時イベント
-@client.listen()
-async def on_track_start(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生開始イベント: {guild_id}")
+def init_quiz_session_manager() -> None:
+	global quiz_session_manager
+	quiz_session_manager = QuizSessionManager()
 
 
-# 再生終了時イベント
-@client.listen()
-async def on_track_end(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生終了イベント: {guild_id}")
-	session = quiz_session_manager.get_session(guild_id)
-	if session is None:
-		return
-	# 次の問題へ進む
-	session.NEXT.set()
+init_quiz_session_manager()
