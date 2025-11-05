@@ -57,7 +57,7 @@ class QuizJoinView(discord.ui.View):
 
 class QuizNextQButtonView(discord.ui.View):
 	def __init__(self, session_id: int, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
+		super().__init__(timeout=None, *args, **kwargs)
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
 
@@ -163,12 +163,15 @@ class QuizAnswerSelectView(discord.ui.View):
 		# 不正解
 		# FIXME: 解答判定時に問題があった場合も None が返ってきて不正解判定になるので、問題があった場合は別の処理を行うようにする
 		if result is None:
+			# タイトルを生成
+			# YouTube の場合はアーティスト名を含めない
+			_track = self.session.get_track_from_uri(interaction.data["values"][0])
+			_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
+			# メッセージを送信
 			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.error(
 					title=t("view.q.answer_select.incorrect.title"),
-					description=t(
-						"view.q.answer_select.incorrect.description", self.session.get_track_from_uri(interaction.data["values"][0]).title
-					),
+					description=t("view.q.answer_select.incorrect.description", _title),
 					icon="❌",
 				),
 				ephemeral=True,
@@ -179,10 +182,15 @@ class QuizAnswerSelectView(discord.ui.View):
 				self.session.next_cleanup_messages.append(_.message)
 		# 正解
 		else:
+			# タイトルを生成
+			# YouTube の場合はアーティスト名を含めない
+			_track = result
+			_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
+			# メッセージを送信
 			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.success(
 					title=t("view.q.answer_select.correct.title"),
-					description=t("view.q.answer_select.correct.description", result.title),
+					description=t("view.q.answer_select.correct.description", _title),
 					icon="✅",
 				),
 				view=QuizNextQButtonView(self.session_id),  # 次の問題へ ボタン
@@ -196,7 +204,7 @@ class QuizAnswerSelectView(discord.ui.View):
 
 class QuizAnswerButtonView(discord.ui.View):
 	def __init__(self, session_id: int, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
+		super().__init__(timeout=None, *args, **kwargs)
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
 
@@ -465,6 +473,7 @@ class QuizSession:
 
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
+			logger.debug("- プレイヤー一覧生成")
 			# プレイヤー一覧テキストを生成
 			player_mentions = []
 			for p in self.players:
@@ -473,6 +482,7 @@ class QuizSession:
 					member = await self.guild.fetch_member(p.id)
 				player_mentions.append(member.mention)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
+
 			# クイズ開始メッセージを送信
 			start_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(
@@ -486,7 +496,6 @@ class QuizSession:
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
 				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
 			)
-			await asyncio.sleep(1)
 
 			for i, q in enumerate(self.q_tracks, 1):
 				if not self.playing:
@@ -500,6 +509,7 @@ class QuizSession:
 				self.join_queued_players()
 
 				# プレイヤー一覧テキストを更新する
+				logger.debug("- プレイヤー一覧更新")
 				player_mentions = []
 				for p in self.players:
 					member = self.guild.get_member(p.id)
@@ -512,16 +522,15 @@ class QuizSession:
 
 				self.NEXT.clear()
 
+				logger.debug("- タイトル更新")
 				# タイトルを更新
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
 
-				await asyncio.sleep(1)
-
 				# 解答ができる状態にする
 				self.can_answered = True
 
-				logger.debug("再生開始")
+				logger.debug("- 再生開始")
 
 				# 再生
 				await self.pl.play(q)
@@ -531,14 +540,14 @@ class QuizSession:
 				# 解答ができない状態にする
 				self.can_answered = False
 
-				logger.debug("再生終了")
+				logger.debug("- 再生終了")
 
 				# 削除対象のメッセージたちを削除する
 				for msg in self.next_cleanup_messages:
 					try:
 						await msg.delete()
 					except discord.errors.NotFound:
-						pass
+						logger.debug(f"- 問題終了時メッセージ削除失敗 - NotFound: {msg.id}")
 					except Exception:
 						logger.error("- 問題終了時メッセージクリーンアップエラー")
 						logger.error(traceback.format_exc())
@@ -548,7 +557,7 @@ class QuizSession:
 				self.refresh()
 				# 待機
 				logger.debug("待機")
-				await asyncio.sleep(3)
+				await asyncio.sleep(2)
 
 			# 解答メッセージを削除
 			try:
@@ -556,6 +565,7 @@ class QuizSession:
 			except discord.errors.NotFound:
 				pass
 
+			logger.debug("ランキング生成")
 			# ランキングテキストを生成
 			# TODO: ただの一覧ではなく順位をつけて表示するようにする
 			ranking_list = []
@@ -570,6 +580,7 @@ class QuizSession:
 				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
 			)
 
+			logger.debug("クイズ終了")
 			# 終了
 			self.playing = False
 			self.reset()
@@ -692,9 +703,9 @@ class QuizSession:
 			self.answering_player = None
 			await asyncio.sleep(1)
 			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
-			if not self.NEXT.is_set():
-				logger.debug("- 再生再開")
-				await self.pl.pause(pause=False)
+			# if not self.NEXT.is_set():
+			# 	logger.debug("- 再生再開")
+			# 	await self.pl.pause(pause=False)
 
 		# 解答中メッセージを削除
 		try:
@@ -736,6 +747,7 @@ class QuizSession:
 			player.correct()
 			await asyncio.sleep(1)
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
+			logger.debug("- 正解後再生開始")
 			await self.pl.update(position=0, end_time=None, pause=False)
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
@@ -747,6 +759,8 @@ class QuizSession:
 		logger.debug("- 不正解")
 		player.incorrect()
 		self.ANSWERED.set()
+		logger.debug("- 再生再開")
+		await self.pl.pause(pause=False)
 		# 解答ができる状態にする
 		self.can_answered = True
 		return None
