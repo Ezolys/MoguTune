@@ -109,10 +109,10 @@ class QuizAnswerSelectView(discord.ui.View):
 		self.session = quiz_session_manager.get_session(session_id)
 
 		if self.session is None:
-			logger.debug("QuizAnswerSelectView.session is None")
+			logger.warning("QuizAnswerSelectView.session is None on init")
 			return
 
-		logger.debug("Answer Select Options")
+		logger.debug("Generating Answer Select Options")
 		for at in self.session.get_answer_tracks():
 			logger.debug(f"{at.title}: {at.uri}")
 
@@ -139,24 +139,21 @@ class QuizAnswerSelectView(discord.ui.View):
 
 		self.session = quiz_session_manager.get_session(self.session_id)
 		# セッションが存在するかチェック
-		if self.session is None:
-			_ = await interaction.response.send_message(
+		if self.session is None or interaction.message is None:
+			await interaction.response.send_message(
 				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
 				ephemeral=True,
 				delete_after=3,
 			)
 			return
 
-		# クリックしたユーザーが解答者ではない場合はエラーメッセージを返す
+		# クリックしたユーザーが解答権を持っていない場合はエラーメッセージを返す
 		if self.session.answering_player is not None and self.session.answering_player.id != interaction.user.id:
-			_ = await interaction.response.send_message(
+			await interaction.response.send_message(
 				embed=EmbedsTemplates.error(description=t("view.q.answer_select.do_not_have_permission.description")),
 				ephemeral=True,
 				delete_after=3,
 			)
-			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
 			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
@@ -164,7 +161,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		# 不正解
 		# FIXME: 解答判定時に問題があった場合も None が返ってきて不正解判定になるので、問題があった場合は別の処理を行うようにする
 		if result is None:
-			_ = await interaction.response.send_message(
+			await interaction.response.send_message(
 				embed=EmbedsTemplates.error(
 					title=t("view.q.answer_select.incorrect.title"),
 					description=t(
@@ -175,12 +172,9 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=2,
 			)
-			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
 		# 正解
 		else:
-			_ = await interaction.response.send_message(
+			correct_msg = await interaction.response.send_message(
 				embed=EmbedsTemplates.success(
 					title=t("view.q.answer_select.correct.title"),
 					description=t("view.q.answer_select.correct.description", result.title),
@@ -191,8 +185,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				# delete_after=3,
 			)
 			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
+			self.session.add_cleanup_message(correct_msg.message)
 
 
 class QuizAnswerButtonView(discord.ui.View):
@@ -278,7 +271,7 @@ class QuizSession:
 	pl: "QuizPlayerNode"
 	"""プレイヤー (Mafic)"""
 
-	players: list[QuizPlayer] = field(default_factory=list)
+	players: dict[int, QuizPlayer] = field(default_factory=dict)
 	"""参加するプレイヤーの一覧"""
 	queue: list[int] = field(default_factory=list)
 	"""参加待ちのプレイヤーのID"""
@@ -289,7 +282,7 @@ class QuizSession:
 	"""現在解答中のプレイヤー"""
 	current_q_number: int = 0
 	"""問題番号"""
-	q_original_tracks: list[mafic.Track] | None = None
+	q_original_tracks: list[mafic.Track] = field(default_factory=list)
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
 	"""問題のトラック一覧"""
@@ -308,14 +301,14 @@ class QuizSession:
 		if self.is_player_joined(user_id):
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
-		self.players.append(QuizPlayer(user_id))
+		self.players[user_id] = QuizPlayer(user_id)
 
 	def remove_player(self, user_id: int) -> None:
 		"""プレイヤーを削除"""
 		if not self.is_player_joined(user_id):
 			return
 		logger.debug(f"プレイヤー削除: {user_id}")
-		self.players = [player for player in self.players if player.id != user_id]
+		del self.players[user_id]
 
 	def add_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを追加"""
@@ -341,7 +334,7 @@ class QuizSession:
 
 	def is_player_joined(self, user_id: int) -> bool:
 		"""プレイヤーが参加しているかどうかを返す"""
-		return user_id in [player.id for player in self.players]
+		return user_id in self.players
 
 	def join_player(self, user_id: int) -> None:
 		"""プレイヤーを参加させる
@@ -356,10 +349,7 @@ class QuizSession:
 
 	def get_player(self, user_id: int) -> QuizPlayer | None:
 		"""プレイヤーを取得"""
-		for player in self.players:
-			if player.id == user_id:
-				return player
-		return None
+		return self.players.get(user_id)
 
 	def get_answer_tracks(self) -> list[mafic.Track]:
 		"""解答候補のトラック一覧を生成"""
@@ -399,180 +389,181 @@ class QuizSession:
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
-		[player.incorrect_reset() for player in self.players]
+		for player in self.players.values():
+			player.incorrect_reset()
 
 	def reset(self) -> None:
 		"""クイズセッションをリセット"""
 		# 全プレイヤーのポイントと不正解フラグをリセット
-		[player.reset() for player in self.players]
+		for player in self.players.values():
+			player.reset()
+		self.players.clear()
+		self.queue.clear()
+		self.next_cleanup_messages.clear()
+
 		# 各変数をリセット
 		self.q_original_tracks = []
 		self.q_tracks = []
-		self.current_q_number = 0
 		self.answering_player = None
 
 	async def play(self, tracks: mafic.Playlist, q_count: int) -> bool | str:
-		"""クイズを開始"""
+		"""クイズのメインループを実行する"""
 		try:
 			self.playing = True
 			self.reset()
 
-			self.guild = client.get_guild(self.guild_id)  # fetch
-			if self.guild is None:
-				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Guild not found")
-			self.voice_channel = self.guild.get_channel(self.channel_id)
-			if self.voice_channel is None:
-				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Voice Channel not found")
-			if not isinstance(self.voice_channel, discord.VoiceChannel):
-				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
+			if not await self._initialize_quiz(tracks, q_count):
+				return False
 
-			# トラック一覧
-			self.q_original_tracks = tracks.tracks
-			# 重複したトラックを除く
-			unique_tracks = []
-			seen_uris = set()
-			for track in self.q_original_tracks:
-				if track.uri is None:  # URI が None の楽曲は除く
-					continue
-				if track.uri not in seen_uris:
-					unique_tracks.append(track)
-					seen_uris.add(track.uri)
-			self.q_original_tracks = unique_tracks
+			await self._run_quiz_loop(tracks.name, q_count)
 
-			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
-			self.q_tracks = random.sample(tracks.tracks, len(tracks.tracks))[:q_count]
+			await self._finalize_quiz()
+			return True
+		except Exception:
+			return await DebugLogger.report_internal_error(traceback.format_exc())
 
+	async def _initialize_quiz(self, tracks: mafic.Playlist, q_count: int) -> bool:
+		"""クイズの初期設定とバリデーションを行う"""
+		self.guild = client.get_guild(self.guild_id)
+		self.voice_channel = self.guild.get_channel(self.channel_id) if self.guild else None
+		# トラック一覧
+		self.q_original_tracks = tracks.tracks
+		# 重複したトラックを除く
+		unique_tracks = []
+		seen_uris = set()
+		for track in self.q_original_tracks:
+			if track.uri is None:  # URI が None の楽曲は除く
+				continue
+			if track.uri not in seen_uris:
+				unique_tracks.append(track)
+				seen_uris.add(track.uri)
+		self.q_original_tracks = unique_tracks
+
+		# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
+		self.q_tracks = random.sample(self.q_original_tracks, len(self.q_original_tracks))[:q_count]
+
+		if isinstance(self.voice_channel, discord.VoiceChannel):
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < 2:
 				await self.voice_channel.send(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
 				# 終了
-				self.playing = False
-				self.reset()
 				return False
 
-			# 有効なトラック数が問題数+1よりも少ない場合はエラーメッセージを返す
+			# 有効なトラック数が問題数よりも少ない場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < q_count:
 				await self.voice_channel.send(
 					embed=EmbedsTemplates.error(description=t("msg.q.init.not_enough_song", len(self.q_original_tracks), q_count))
 				)
-				# 終了
-				self.playing = False
-				self.reset()
 				return False
 
-			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
+		logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
+		return True
 
-			# プレイヤー一覧テキストを生成
-			player_mentions = []
-			for p in self.players:
-				member = self.guild.get_member(p.id)
-				if member is None:
-					member = await self.guild.fetch_member(p.id)
-				player_mentions.append(member.mention)
-			player_list_text = "  - " + "\n  - ".join(player_mentions)
-			# クイズ開始メッセージを送信
-			start_msg = await self.voice_channel.send(
-				embed=EmbedsTemplates.info(
-					title=t("msg.q.init.title"),
-					description=t("msg.q.init.description", tracks.name, q_count, player_list_text),
-					icon="▶️",
-				)
+	async def _run_quiz_loop(self, playlist_name: str, q_count: int) -> None:
+		"""クイズの問題ループを実行する"""
+		if not isinstance(self.voice_channel, discord.VoiceChannel):
+			return
+		# プレイヤー一覧テキストを生成
+		player_list_text = await self._get_player_mentions_text()
+		# クイズ開始メッセージを送信
+		start_msg = await self.voice_channel.send(
+			embed=EmbedsTemplates.info(
+				title=t("msg.q.init.title"),
+				description=t("msg.q.init.description", playlist_name, q_count, player_list_text),
+				icon="▶️",
 			)
+		)
+
+		q_msg = None
+		for i, q in enumerate(self.q_tracks, 1):
+			if not self.playing:  # stopコマンドなどで停止された場合
+				break
+
+			logger.debug(f"{i}問目")
+
+			# プレイヤー一覧テキストを更新する
+			player_list_text = await self._get_player_mentions_text()
+			start_msg.embeds[0].description = t("msg.q.init.description", playlist_name, q_count, player_list_text)
+			await start_msg.edit(embed=start_msg.embeds[0])
+
+			self.NEXT.clear()
+
 			# 問題開始メッセージを送信
 			q_msg = await self.voice_channel.send(
-				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
+				embed=EmbedsTemplates.info(title=t("msg.q.start.title", str(i)), description=t("msg.q.start.description"), icon="❔"),
 				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
 			)
-			await asyncio.sleep(1)
+			# 参加待ちのプレイヤーを参加させる
+			self.join_queued_players()
 
-			for i, q in enumerate(self.q_tracks, 1):
-				if not self.playing:
-					return False
+			# 解答ができる状態にする
+			self.can_answered = True
 
-				logger.debug(f"{i}問目")
+			logger.debug("再生開始")
 
-				self.q_number = i
+			# 再生
+			await self.pl.play(q)
+			await self.NEXT.wait()  # 待機
+			await self.pl.pause()  # 念の為一時停止
 
-				# 参加待ちのプレイヤーを参加させる
-				self.join_queued_players()
+			# 解答ができない状態にする
+			self.can_answered = False
 
-				# プレイヤー一覧テキストを更新する
-				player_mentions = []
-				for p in self.players:
-					member = self.guild.get_member(p.id)
-					if member is None:
-						member = await self.guild.fetch_member(p.id)
-					player_mentions.append(member.mention)
-				player_list_text = "  - " + "\n  - ".join(player_mentions)
-				start_msg.embeds[0].description = t("msg.q.init.description", tracks.name, q_count, player_list_text)
-				await start_msg.edit(embed=start_msg.embeds[0])
+			logger.debug("再生終了")
+			# ラウンド終了時のメッセージ削除など
+			await self._cleanup_round()
 
-				self.NEXT.clear()
-
-				# タイトルを更新
-				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
-				await q_msg.edit(embed=q_msg.embeds[0])
-
-				await asyncio.sleep(1)
-
-				# 解答ができる状態にする
-				self.can_answered = True
-
-				logger.debug("再生開始")
-
-				# 再生
-				await self.pl.play(q)
-				await self.NEXT.wait()  # 待機
-				await self.pl.pause()  # 念の為一時停止
-
-				# 解答ができない状態にする
-				self.can_answered = False
-
-				logger.debug("再生終了")
-
-				# 削除対象のメッセージたちを削除する
-				for msg in self.next_cleanup_messages:
-					try:
-						await msg.delete()
-					except discord.errors.NotFound:
-						pass
-					except Exception:
-						logger.error("- 問題終了時メッセージクリーンアップエラー")
-						logger.error(traceback.format_exc())
-						await DebugLogger.report_internal_error(traceback.format_exc())
-
-				# 全プレイヤーの不正解フラグをリセット
-				self.refresh()
-				# 待機
-				logger.debug("待機")
-				await asyncio.sleep(3)
+			# 待機
+			logger.debug("待機")
+			await asyncio.sleep(3)
 
 			# 解答メッセージを削除
-			try:
+			if q_msg:
 				await q_msg.delete()
-			except discord.errors.NotFound:
-				pass
 
-			# ランキングテキストを生成
-			# TODO: ただの一覧ではなく順位をつけて表示するようにする
-			ranking_list = []
-			for p in self.players:
-				member = self.guild.get_member(p.id)
-				if member is None:
-					member = await self.guild.fetch_member(p.id)
+	async def _finalize_quiz(self) -> None:
+		"""クイズを終了し、結果を表示する"""
+		if not isinstance(self.voice_channel, discord.VoiceChannel):
+			return
+		# ランキングテキストを生成
+		# TODO: ただの一覧ではなく順位をつけて表示するようにする
+		ranking_text = await self._get_ranking_text()
+		# 終了メッセージを送信する
+		await self.voice_channel.send(
+			embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking_text), icon="🏁")
+		)
+
+		# 終了
+		self.playing = False
+		self.reset()
+
+	async def _get_player_mentions_text(self) -> str:
+		"""参加プレイヤーのメンションリスト文字列を生成する"""
+		if not self.guild:
+			return ""
+		player_mentions = []
+		for p_id in self.players:
+			member = self.guild.get_member(p_id) or await self.guild.fetch_member(p_id)
+			if member:
+				player_mentions.append(member.mention)
+		return "  - " + "\n  - ".join(player_mentions) if player_mentions else t("msg.q.init.no_players")
+
+	async def _get_ranking_text(self) -> str:
+		"""ランキング文字列を生成する"""
+		if not self.guild:
+			return ""
+		# TODO: 順位付け
+		ranking_list = []
+		for p in self.players.values():
+			member = self.guild.get_member(p.id) or await self.guild.fetch_member(p.id)
+			if member:
 				ranking_list.append(f"{member.mention}: `{p.point}`")
-			ranking = "- " + "\n- ".join(ranking_list)
-			# 終了メッセージを送信する
-			await self.voice_channel.send(
-				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
-			)
+		return "- " + "\n- ".join(ranking_list) if ranking_list else t("msg.q.init.no_players")
 
-			# 終了
-			self.playing = False
-			self.reset()
-			return True
-		except Exception:
-			return await DebugLogger.report_internal_error(traceback.format_exc())
+	async def _cleanup_round(self) -> None:
+		"""ラウンド終了時のクリーンアップ処理"""
+		await self._cleanup_messages()
+		self.refresh()
 
 	async def raise_hand(self, interaction: discord.Interaction, user_id: int) -> None:
 		"""再生を一時停止して解答の選択肢を送信する"""
@@ -656,8 +647,7 @@ class QuizSession:
 				icon="💭",
 			)
 		)
-		# 削除対象メッセージに追加
-		self.next_cleanup_messages.append(as_msg)
+		self.add_cleanup_message(as_msg)
 
 		# 一時停止する
 		self.ANSWERED.clear()
@@ -665,16 +655,13 @@ class QuizSession:
 		await self.pl.pause()
 
 		# 解答の選択肢セレクターを送信する
-		_ = await interaction.followup.send(
+		selector_msg = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
 			view=QuizAnswerSelectView(self.guild_id),
 			delete_after=5,  # 5秒後に自動削除
 			ephemeral=True,
 			wait=True,
 		)
-		# 削除対象メッセージに追加
-		if _ is not None:
-			self.next_cleanup_messages.append(_)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
@@ -703,6 +690,22 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.enable_all_items()
 
+	def add_cleanup_message(self, message: discord.Message | None) -> None:
+		"""次のラウンドで削除するメッセージを追加する"""
+		if message:
+			self.next_cleanup_messages.append(message)
+
+	async def _cleanup_messages(self) -> None:
+		"""ラウンド終了時に不要なメッセージを削除する"""
+		for msg in self.next_cleanup_messages:
+			try:
+				await msg.delete()
+			except discord.errors.NotFound:
+				pass  # 既に削除されている
+			except Exception as e:
+				logger.error(f"問題終了時メッセージクリーンアップエラー: {e}")
+		self.next_cleanup_messages.clear()
+
 	async def answer(self, user_id: int, answer: str) -> mafic.Track | None:
 		"""解答する"""
 		logger.debug(f"解答判定: {user_id} - {answer}")
@@ -712,7 +715,7 @@ class QuizSession:
 		if self.pl.current is None:
 			await DebugLogger.report_internal_error("Session.player.current is None")
 			return None
-		if user_id not in [player.id for player in self.players]:
+		if not self.is_player_joined(user_id):
 			await DebugLogger.report_internal_error("User is not in players")
 			return None
 

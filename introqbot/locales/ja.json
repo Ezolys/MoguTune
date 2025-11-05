@@ -43,6 +43,7 @@
 		"msg.q.init.description": "- プレイリスト: {0}\n- 問題数: `{1}`\n- プレイヤー\n{2}",
 		"msg.q.init.must_be_at_least_two_songs": "楽曲数は2曲以上である必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",
 		"msg.q.init.not_enough_song": "楽曲数 (`{0}`) は問題数 (`{1}`) を上回る必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",
+		"msg.q.init.no_players": "",
 		"msg.q.start.title": "{0}問目",
 		"msg.q.start.description": "解答ボタンを押して解答！",
 		"msg.q.answer.correct.title": "正解！",

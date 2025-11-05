@@ -141,10 +141,7 @@ def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
 	# Cogs の読み込み
-	for path, _, files in walk("introqbot/cogs/commands"):
-		for filename in files:
-			if filename.endswith(".py"):
-				client.load_extension(f"{path.replace('/', '.')}.{filename[:-3]}")
+	client.load_extensions("introqbot.cogs.commands")
 	# コマンドのローカライズ
 	i18n.localize_commands()
 	# Bot の起動
