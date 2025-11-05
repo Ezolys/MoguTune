@@ -113,7 +113,7 @@ class QuizCommands(discord.Cog):
 		# VCに参加しているユーザーをプレイヤーとして追加する
 		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
 			# 自分自身とボットは除外
-			if u == self.bot.user.id or (await ctx.guild.fetch_member(u)).bot:
+			if u == self.bot.user.id or (ctx.guild.get_member(u) or await ctx.guild.fetch_member(u)).bot:
 				continue
 			session.add_player(u)
 
