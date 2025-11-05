@@ -18,20 +18,6 @@ class GeneralCommands(discord.Cog):
 		ping = round(client.latency * 1000)
 		await ctx.respond(embed=EmbedsTemplates.success(title="Ping", description=t("cmd.ping.result", ping)))
 
-	@commands.slash_command()
-	@discord.guild_only()
-	@discord.default_permissions(administrator=True)
-	async def test_embed(self, ctx: discord.ApplicationContext) -> None:
-		await ctx.respond(
-			embeds=[
-				EmbedsTemplates.info(title="Test", description="Test1234"),
-				EmbedsTemplates.success(description="Test1234"),
-				EmbedsTemplates.warning(description="Test1234"),
-				EmbedsTemplates.error(description="Test1234"),
-				EmbedsTemplates.internal_error(description="Test1234"),
-			]
-		)
-
 
 def setup(bot: discord.Bot) -> None:
 	bot.add_cog(GeneralCommands(bot))
