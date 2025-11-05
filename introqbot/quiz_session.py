@@ -177,9 +177,6 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=2,
 			)
-			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
 		# 正解
 		else:
 			# タイトルを生成
@@ -190,7 +187,7 @@ class QuizAnswerSelectView(discord.ui.View):
 			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.success(
 					title=t("view.q.answer_select.correct.title"),
-					description=t("view.q.answer_select.correct.description", _title),
+					description=t("view.q.answer_select.correct.description", _title, _track.uri),
 					icon="✅",
 				),
 				view=QuizNextQButtonView(self.session_id),  # 次の問題へ ボタン
@@ -546,6 +543,7 @@ class QuizSession:
 				for msg in self.next_cleanup_messages:
 					try:
 						await msg.delete()
+						logger.debug(f"- 問題終了時メッセージ削除: {msg.id}")
 					except discord.errors.NotFound:
 						logger.debug(f"- 問題終了時メッセージ削除失敗 - NotFound: {msg.id}")
 					except Exception:
@@ -670,8 +668,6 @@ class QuizSession:
 				icon="💭",
 			)
 		)
-		# 削除対象メッセージに追加
-		self.next_cleanup_messages.append(as_msg)
 
 		# 一時停止する
 		self.ANSWERED.clear()
@@ -686,9 +682,6 @@ class QuizSession:
 			ephemeral=True,
 			wait=True,
 		)
-		# 削除対象メッセージに追加
-		if _ is not None:
-			self.next_cleanup_messages.append(_)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
