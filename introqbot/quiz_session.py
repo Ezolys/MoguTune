@@ -118,7 +118,19 @@ class QuizAnswerSelectView(discord.ui.View):
 			logger.debug(f"{at.title}: {at.uri}")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
-		self.answer_select.options = [discord.SelectOption(label=t.title, value=t.uri) for t in (self.session.get_answer_tracks())]
+		# 解答候補一覧
+		for tr in self.session.get_answer_tracks():
+			# タイトルを生成
+			# YouTube の場合はアーティスト名を含めない
+			_title = tr.title if tr.source == "youtube" else tr.title + " - " + tr.author
+			if len(_title) > 90:
+				_title = _title[:90] + "..."  # 100文字以内に収まるようにする
+			self.answer_select.options.append(
+				discord.SelectOption(
+					label=_title,
+					value=tr.uri,
+				)
+			)
 		self.answer_select.callback = self.answer_select_callback
 		self.add_item(self.answer_select)
 
@@ -423,6 +435,8 @@ class QuizSession:
 			unique_tracks = []
 			seen_uris = set()
 			for track in self.q_original_tracks:
+				if track.uri is None:  # URI が None の楽曲は除く
+					continue
 				if track.uri not in seen_uris:
 					unique_tracks.append(track)
 					seen_uris.add(track.uri)
