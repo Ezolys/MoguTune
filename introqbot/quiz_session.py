@@ -55,6 +55,52 @@ class QuizJoinView(discord.ui.View):
 		await interaction.respond(embed=EmbedsTemplates.success(description=t("view.q.join.msg.joined")), ephemeral=True)
 
 
+class QuizNextQButtonView(discord.ui.View):
+	def __init__(self, session_id: int, *args, **kwargs) -> None:
+		super().__init__(*args, **kwargs)
+		self.session_id = session_id
+		self.session = quiz_session_manager.get_session(session_id)
+
+		# セッションが存在するかチェック
+		if self.session is None:
+			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
+			return
+
+		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️")
+		self.next_q_button.callback = self.next_q_button_callback
+		self.add_item(self.next_q_button)
+
+	# 解答ボタン
+	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
+		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
+
+		# セッションが存在するかチェック
+		if self.session is None:
+			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
+			return
+
+		if interaction.message is None:
+			_ = await interaction.response.send_message(
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error("QuizNextQButtonView.interaction.message is None")
+				)
+			)
+			# 削除対象メッセージに追加
+			if _.message is not None:
+				self.session.next_cleanup_messages.append(_.message)
+			return
+
+		# TODO: クイズのオーナーだけがこのボタンを押せるようにする？
+
+		# 正解メッセージを削除する
+		try:
+			await interaction.message.delete()
+		except discord.errors.NotFound:
+			pass
+		# 再生停止 (=次の問題へ)
+		await self.session.pl.stop()
+
+
 class QuizAnswerSelectView(discord.ui.View):
 	def __init__(self, session_id: int, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
@@ -81,24 +127,31 @@ class QuizAnswerSelectView(discord.ui.View):
 		logger.debug(f"解答選択肢クリック: {self.session_id}")
 		# セッションが存在するかチェック
 		if self.session is None:
-			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
+			_ = await interaction.response.send_message(
+				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
+				ephemeral=True,
+				delete_after=3,
+			)
 			return
 
-		if self.session.answering_player is not None:
-			if self.session.answering_player.id != interaction.user.id:
-				await interaction.respond(
-					embed=EmbedsTemplates.error(description=t("view.q.answer_select.do_not_have_permission.description")),
-					ephemeral=True,
-					delete_after=3,
-				)
-				return
+		# クリックしたユーザーが解答者ではない場合はエラーメッセージを返す
+		if self.session.answering_player is not None and self.session.answering_player.id != interaction.user.id:
+			_ = await interaction.response.send_message(
+				embed=EmbedsTemplates.error(description=t("view.q.answer_select.do_not_have_permission.description")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			# 削除対象メッセージに追加
+			if _.message is not None:
+				self.session.next_cleanup_messages.append(_.message)
+			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
 
 		# 不正解
 		# FIXME: 解答判定時に問題があった場合も None が返ってきて不正解判定になるので、問題があった場合は別の処理を行うようにする
 		if result is None:
-			await interaction.respond(
+			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.error(
 					title=t("view.q.answer_select.incorrect.title"),
 					description=t(
@@ -109,17 +162,24 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=2,
 			)
+			# 削除対象メッセージに追加
+			if _.message is not None:
+				self.session.next_cleanup_messages.append(_.message)
 		# 正解
 		else:
-			await interaction.respond(
+			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.success(
 					title=t("view.q.answer_select.correct.title"),
 					description=t("view.q.answer_select.correct.description", result.title),
 					icon="✅",
 				),
+				view=QuizNextQButtonView(self.session_id),  # 次の問題へ ボタン
 				# ephemeral=True,
-				delete_after=3,
+				# delete_after=3,
 			)
+			# 削除対象メッセージに追加
+			if _.message is not None:
+				self.session.next_cleanup_messages.append(_.message)
 
 
 class QuizAnswerButtonView(discord.ui.View):
@@ -133,7 +193,7 @@ class QuizAnswerButtonView(discord.ui.View):
 			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
 			return
 
-		self.answer_button = discord.ui.Button(label=t("view.q.answer_button.label"), emoji="💭")
+		self.answer_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.answer_button.label"), emoji="💭")
 		self.answer_button.callback = self.answer_button_callback
 		self.add_item(self.answer_button)
 
@@ -148,6 +208,17 @@ class QuizAnswerButtonView(discord.ui.View):
 			# セッションが見つからない場合はエラーメッセージを送信する
 			await interaction.respond(
 				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		if not self.session.can_answered:
+			# 解答ができない状態の場合はエラーメッセージを送信する
+			await interaction.respond(
+				embed=EmbedsTemplates.warning(
+					description=t("view.q.answer_button.cannot_answered"),
+				),
 				ephemeral=True,
 				delete_after=3,
 			)
@@ -213,6 +284,12 @@ class QuizSession:
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
 	"""問題のトラック一覧"""
+
+	next_cleanup_messages: list[discord.Message] = field(default_factory=list)
+	"""次の問題開始時に削除するメッセージのリスト"""
+
+	can_answered: bool = False
+	"""解答ができる状態かどうか"""
 
 	NEXT: asyncio.Event = field(default_factory=asyncio.Event)
 	ANSWERED: asyncio.Event = field(default_factory=asyncio.Event)
@@ -427,13 +504,31 @@ class QuizSession:
 
 				await asyncio.sleep(1)
 
+				# 解答ができる状態にする
+				self.can_answered = True
+
 				logger.debug("再生開始")
 
 				# 再生
-				await self.pl.play(q, end_time=15000)  # ミリ秒
-				await self.NEXT.wait()
+				await self.pl.play(q)
+				await self.NEXT.wait()  # 待機
+				await self.pl.pause()  # 念の為一時停止
+
+				# 解答ができない状態にする
+				self.can_answered = False
 
 				logger.debug("再生終了")
+
+				# 削除対象のメッセージたちを削除する
+				for msg in self.next_cleanup_messages:
+					try:
+						await msg.delete()
+					except discord.errors.NotFound:
+						pass
+					except Exception:
+						logger.error("- 問題終了時メッセージクリーンアップエラー")
+						logger.error(traceback.format_exc())
+						await DebugLogger.report_internal_error(traceback.format_exc())
 
 				# 全プレイヤーの不正解フラグをリセット
 				self.refresh()
@@ -442,7 +537,10 @@ class QuizSession:
 				await asyncio.sleep(3)
 
 			# 解答メッセージを削除
-			await q_msg.delete()
+			try:
+				await q_msg.delete()
+			except discord.errors.NotFound:
+				pass
 
 			# ランキングテキストを生成
 			# TODO: ただの一覧ではなく順位をつけて表示するようにする
@@ -520,6 +618,9 @@ class QuizSession:
 			)
 			return
 
+		# 解答ができない状態にする
+		self.can_answered = False
+
 		# 解答中プレイヤーを設定
 		self.answering_player = self.get_player(user_id)
 		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
@@ -544,6 +645,8 @@ class QuizSession:
 				icon="💭",
 			)
 		)
+		# 削除対象メッセージに追加
+		self.next_cleanup_messages.append(as_msg)
 
 		# 一時停止する
 		self.ANSWERED.clear()
@@ -551,12 +654,16 @@ class QuizSession:
 		await self.pl.pause()
 
 		# 解答の選択肢セレクターを送信する
-		await interaction.followup.send(
+		_ = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
 			view=QuizAnswerSelectView(self.guild_id),
 			delete_after=5,  # 5秒後に自動削除
 			ephemeral=True,
+			wait=True,
 		)
+		# 削除対象メッセージに追加
+		if _ is not None:
+			self.next_cleanup_messages.append(_)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
@@ -576,7 +683,10 @@ class QuizSession:
 				await self.pl.pause(pause=False)
 
 		# 解答中メッセージを削除
-		await as_msg.delete()
+		try:
+			await as_msg.delete()
+		except discord.errors.NotFound:
+			pass
 
 		# 部品を有効化
 		# if interaction.view is not None:
@@ -605,19 +715,26 @@ class QuizSession:
 
 		if self.pl.current.uri == answer:
 			logger.debug("- 正解")
+			# 解答ができない状態にする
+			self.can_answered = False
 			correct_track = self.pl.current
 			# 正解
 			player.correct()
+			await asyncio.sleep(1)
+			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
+			await self.pl.update(position=0, end_time=None, pause=False)
 			# 次の問題へ進む
-			logger.debug("- 次の問題へ")
+			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()
-			await self.pl.stop()
+			# await self.pl.stop()
 			self.ANSWERED.set()
 			return correct_track
 		# 不正解
 		logger.debug("- 不正解")
 		player.incorrect()
 		self.ANSWERED.set()
+		# 解答ができる状態にする
+		self.can_answered = True
 		return None
 
 
@@ -654,15 +771,21 @@ quiz_session_manager = QuizSessionManager()
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
 	session = quiz_session_manager.get_session(member.guild.id)
 	# 対象のサーバーでクイズが行われている場合はメンバーのチェックを実行する
-	if session is None or after.channel is None:
+	if session is None:
 		return
-	# クイズが行われているボイスチャンネルの場合
-	if after.channel.id == session.channel_id:
+
+	# クイズが行われているボイスチャンネルに参加した
+	if after.channel is not None and after.channel.id == session.channel_id:
 		# 自分自身とボットは除外
 		if member.id == client.user.id or member.bot:
 			return
 		# 参加待ちの列へ追加する
 		session.add_queue(member.id)
+	# クイズが行われているボイスチャンネルから退出した
+	elif before.channel is not None and after.channel is None and before.channel.id == session.channel_id:
+		# プレイヤーから削除する
+		session.remove_player(member.id)
+		session.remove_queue(member.id)
 
 
 # 再生開始時イベント
