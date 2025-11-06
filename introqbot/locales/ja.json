@@ -67,6 +67,10 @@
 			"name": "ping",
 			"description": "Ping!!!"
 		},
+		"about": {
+			"name": "about",
+			"description": "このボットについての情報を表示します。"
+		},
 		"play": {
 			"name": "play",
 			"description": "クイズを開始します。",
