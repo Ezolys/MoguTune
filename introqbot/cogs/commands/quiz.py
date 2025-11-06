@@ -26,15 +26,15 @@ class QuizCommands(discord.Cog):
 		self,
 		ctx: discord.ApplicationContext,
 		query: str,
-		search_type: discord.Option(
-			input_type=str,
-			required=False,
-			default=mafic.SearchType.YOUTUBE.name,
-			choices=[
-				discord.OptionChoice("Spotify", mafic.SearchType.SPOTIFY_SEARCH.name),
-				discord.OptionChoice("YouTube", mafic.SearchType.YOUTUBE.name),
-			],
-		),  # pyright: ignore[reportInvalidTypeForm]
+		# search_type: discord.Option(
+		# 	input_type=str,
+		# 	required=False,
+		# 	default=mafic.SearchType.YOUTUBE.name,
+		# 	choices=[
+		# 		discord.OptionChoice("Spotify", mafic.SearchType.SPOTIFY_SEARCH.name),
+		# 		discord.OptionChoice("YouTube", mafic.SearchType.YOUTUBE.name),
+		# 	],
+		# ),  # pyright: ignore[reportInvalidTypeForm]
 		q_count: discord.Option(int, min_value=1, max_value=50, required=False, default=10),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
 		if ctx.guild is None:
@@ -75,7 +75,8 @@ class QuizCommands(discord.Cog):
 		player = await voice_channel.connect(cls=mafic.Player)
 
 		# 検索タイプ
-		search_type = mafic.SearchType[search_type]
+		search_type = mafic.SearchType.YOUTUBE
+		# search_type = mafic.SearchType[search_type]
 
 		# プレイリストを検索
 		logger.debug(f"プレイリスト検索 - {search_type}: {query}")

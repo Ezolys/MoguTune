@@ -75,13 +75,9 @@
 					"name": "query",
 					"description": "クイズに使用するプレイリストのURL (YouTube または Spotify)"
 				},
-				"search_type": {
-					"name": "search_type",
-					"description": "プレイリストURLの検索タイプ (デフォルト: YouTube)"
-				},
 				"q_count": {
 					"name": "q_count",
-					"description": "出題する問題の数 [1~50] (デフォルト: 楽曲数-1)"
+					"description": "出題する問題の数 (1~50) [デフォルト: 楽曲数-1]"
 				}
 			}
 		},
