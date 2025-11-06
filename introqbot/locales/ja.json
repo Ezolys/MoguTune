@@ -16,6 +16,7 @@
 		"cmd.start.started.description": "{0} でクイズセッションを開始しました。",
 		"cmd.end.ended": "{0} のクイズセッションを終了しました。",
 		"cmd.end.quiz_not_started": "このサーバーではクイズセッションが開始されていません。",
+		"cmd.end.do_not_have_permission": "あなたはこのクイズの主催者ではないため、終了することはできません！",
 		"cmd.play.preparing.title": "準備中...",
 		"cmd.play.preparing.description": "クイズの準備中です...\nしばらくお待ちください...",
 		"cmd.play.preparing_complete.title": "準備完了！",
@@ -24,7 +25,7 @@
 		"cmd.play.quiz_not_started": "このサーバーではクイズセッションが開始されていません。\nクイズセッションを開始してからもう一度お試しください。",
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
 		"cmd.play.not_a_playlist_url": "プレイリストのURLを指定してください。",
-		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\nこの問題が解消しない場合は、開発者へ報告してください。",
+		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\n(この問題が解消しない場合は、開発者へ報告してください。)",
 		"view.q.join.label": "クイズに参加",
 		"view.q.join.msg.session_not_found": "参加しようとしたクイズセッションは既に終了しています。",
 		"view.q.join.msg.already_joined": "あなたは既にこのクイズセッションに参加しています。",
@@ -39,6 +40,7 @@
 		"view.q.answer_select.incorrect.description": "不正解です...\n**{0}** ではありません...",
 		"view.q.answer_select.do_not_have_permission.description": "あなたには解答権がありません！",
 		"view.q.next_q_button.label": "次の問題へ",
+		"view.q.next_q_button.do_not_have_permission": "あなたはこのクイズの主催者ではないため、次の問題に進めることはできません！",
 		"msg.q.init.title": "クイズ開始",
 		"msg.q.init.description": "- プレイリスト: {0}\n- 問題数: `{1}`\n- プレイヤー\n{2}",
 		"msg.q.init.must_be_at_least_two_songs": "楽曲数は2曲以上である必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",
@@ -79,6 +81,10 @@
 					"description": "出題する問題の数 [1~50] (デフォルト: 楽曲数-1)"
 				}
 			}
+		},
+		"end": {
+			"name": "end",
+			"description": "実施中のクイズを強制的に終了します。"
 		}
 	}
 }

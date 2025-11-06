@@ -20,7 +20,7 @@ class QuizCommands(discord.Cog):
 
 	@commands.slash_command()
 	@discord.guild_only()
-	@discord.default_permissions(administrator=True)
+	@discord.default_permissions(send_messages=True)
 	@commands.cooldown(2, 5)
 	async def play(
 		self,
@@ -87,7 +87,8 @@ class QuizCommands(discord.Cog):
 				await voice_channel.guild.voice_client.disconnect()
 			await msg.edit(
 				embed=EmbedsTemplates.internal_error(
-					description=t("cmd.play.tracks_fetch_error"), error_code=await DebugLogger.report_internal_error(traceback.format_exc())
+					description=t("cmd.play.tracks_fetch_error"),
+					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
 				)
 			)
 			return
@@ -116,30 +117,57 @@ class QuizCommands(discord.Cog):
 				continue
 			session.add_player(u)
 
-		# クイズ開始
+		# クイズ準備完了メッセージ送信
 		await msg.edit(
 			embed=EmbedsTemplates.info(
 				title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"), icon="☑️"
 			)
 		)
-		play_result = await session.play(tracks, q_count)
+		# クイズ開始
+		play_result = await session.play(tracks, q_count, ctx.user.id)
 
 		# 内部エラー
 		if isinstance(play_result, str):
 			await msg.edit(embed=EmbedsTemplates.internal_error(error_code=play_result))
 
-		# ボイスチャンネルから切断する
-		await voice_channel.guild.voice_client.disconnect()
-
 		# クイズセッションを削除する
 		quiz_session_manager.delete_session(session.guild_id)
 
-	# @group.command()
-	# @discord.guild_only()
-	# @discord.default_permissions(administrator=True)
-	# @commands.cooldown(2, 5)
-	# async def stop(self, ctx: discord.ApplicationContext) -> None:
-	# 	await ctx.defer()
+		# ボイスチャンネルから切断する
+		if voice_channel is not None and voice_channel.guild.voice_client is not None:
+			await voice_channel.guild.voice_client.disconnect()
+
+	@commands.slash_command()
+	@discord.guild_only()
+	@discord.default_permissions(send_messages=True)
+	@commands.cooldown(2, 5)
+	async def end(self, ctx: discord.ApplicationContext) -> None:
+		if ctx.guild is None:
+			logger.error("Guild is None")
+			raise Exception("Guild is None")
+
+		session = quiz_session_manager.get_session(ctx.guild.id)
+		if session:
+			# 実行者がクイズの主催者かチェック
+			if session.owner is not None and session.owner.id != ctx.user.id:
+				await ctx.respond(
+					embed=EmbedsTemplates.error(
+						description=t("cmd.end.do_not_have_permission"),
+					),
+					ephemeral=True,
+				)
+				return
+			# クイズを強制終了する
+			await quiz_session_manager.end_session(session.guild_id)
+			# ボイスチャンネルから切断する
+			if session.voice_channel is not None and session.voice_channel.guild.voice_client is not None:
+				await session.voice_channel.guild.voice_client.disconnect()
+			await ctx.respond(
+				embed=EmbedsTemplates.success(description=t("cmd.end.ended", ctx.guild.get_channel(session.channel_id).mention)),
+				ephemeral=True,
+			)
+		else:
+			await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.end.quiz_not_started")), ephemeral=True)
 
 
 def setup(bot: discord.Bot) -> None:

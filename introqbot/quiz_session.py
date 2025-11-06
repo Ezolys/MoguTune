@@ -76,21 +76,32 @@ class QuizNextQButtonView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
+			await interaction.response.send_message(
+				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
+				ephemeral=True,
+				delete_after=3,
+			)
 			return
 
 		if interaction.message is None:
-			_ = await interaction.response.send_message(
+			await interaction.response.send_message(
 				embed=EmbedsTemplates.internal_error(
 					error_code=await DebugLogger.report_internal_error("QuizNextQButtonView.interaction.message is None")
-				)
+				),
+				ephemeral=True,
+				delete_after=3,
 			)
-			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
-			return
 
-		# TODO: クイズのオーナーだけがこのボタンを押せるようにする？
+		# クイズのオーナーだけがこのボタンを押せるようにする
+		if self.session.owner is not None and self.session.owner.id != interaction.user.id:
+			await interaction.response.send_message(
+				embed=EmbedsTemplates.error(
+					description=t("view.q.next_q_button.do_not_have_permission"),
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		# 正解メッセージを削除する
 		try:
@@ -293,6 +304,9 @@ class QuizSession:
 	playing: bool = False
 	"""クイズが開始されているかどうか"""
 
+	owner: QuizPlayer | None = None
+	"""クイズの主催者"""
+
 	answering_player: QuizPlayer | None = None
 	"""現在解答中のプレイヤー"""
 	current_q_number: int = 0
@@ -418,9 +432,16 @@ class QuizSession:
 		self.q_tracks = []
 		self.current_q_number = 0
 		self.answering_player = None
+		self.owner = None
 
-	async def play(self, tracks: mafic.Playlist, q_count: int) -> bool | str:
-		"""クイズを開始"""
+	async def end(self) -> None:
+		"""クイズを終了する"""
+		self.playing = False
+		await self.pl.stop()
+		self.reset()
+
+	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
+		"""クイズを開始する"""
 		try:
 			self.playing = True
 			self.reset()
@@ -433,6 +454,9 @@ class QuizSession:
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Voice Channel not found")
 			if not isinstance(self.voice_channel, discord.VoiceChannel):
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
+
+			# クイズの主催者を設定
+			self.owner = self.get_player(owner_id)
 
 			# トラック一覧
 			self.q_original_tracks = tracks.tracks
@@ -496,7 +520,7 @@ class QuizSession:
 
 			for i, q in enumerate(self.q_tracks, 1):
 				if not self.playing:
-					return False
+					break
 
 				logger.debug(f"{i}問目")
 
@@ -580,8 +604,7 @@ class QuizSession:
 
 			logger.debug("クイズ終了")
 			# 終了
-			self.playing = False
-			self.reset()
+			await self.end()
 			return True
 		except Exception:
 			return await DebugLogger.report_internal_error(traceback.format_exc())
@@ -766,22 +789,29 @@ class QuizSessionManager:
 	sessions: dict[int, QuizSession] = field(default_factory=dict)
 
 	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player) -> QuizSession:
-		"""セッションを新規作成"""
+		"""セッションを新規作成する"""
 		logger.debug(f"セッション新規作成: {guild_id}/{channel_id}")
 		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player)
 		return self.sessions[guild_id]
 
 	def delete_session(self, guild_id: int) -> None:
-		"""セッションを削除"""
+		"""セッションを削除する"""
 		logger.debug(f"セッション削除: {guild_id}")
 		del self.sessions[guild_id]
 
 	def get_session(self, guild_id: int) -> QuizSession | None:
-		"""セッションを取得
+		"""セッションを取得する
 
 		存在しない場合は None を返す
 		"""
 		return self.sessions.get(guild_id)
+
+	async def end_session(self, guild_id: int) -> None:
+		"""セッションを終了して削除する"""
+		logger.debug(f"セッション終了: {guild_id}")
+		if guild_id in self.sessions:
+			await self.sessions[guild_id].end()
+			self.delete_session(guild_id)
 
 
 quiz_session_manager = QuizSessionManager()
