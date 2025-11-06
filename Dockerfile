@@ -1,5 +1,5 @@
 # 
-FROM python:3.14-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 # 
 WORKDIR /code
