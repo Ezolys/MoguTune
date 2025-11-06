@@ -5,11 +5,12 @@ from os import getenv
 import discord
 import mafic
 from discord.ext import commands
+from pycord.localizer import t
 
 from introqbot.debug_logger import DebugLogger
+from introqbot.embeds import EmbedsTemplates
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
-from introqbot.quiz_session import quiz_session_manager
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -40,29 +41,63 @@ class Bot(commands.Bot):
 intents = discord.Intents.default()
 intents.guilds = True
 intents.voice_states = True
-client = Bot(intents=intents, debug_guilds=[1118692349250392184])
+client = Bot(intents=intents, debug_guilds=[1118692349250392184, 1378181427945930843])
 i18n = Localization(client)
 
 
-# 再生開始時イベント
+# アプリケーションコマンド実行時のイベント
 @client.listen()
-async def on_track_start(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生開始: {guild_id}")
-
-
-# 再生終了時イベント
-@client.listen()
-async def on_track_end(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生終了: {guild_id}")
-	session = quiz_session_manager.get_session(guild_id)
-	if session is None:
+async def on_application_command_completion(ctx: discord.ApplicationContext) -> None:
+	if ctx.command is None:
+		logger.warning("アプリケーションコマンド実行 - コマンドが見つかりません: %s", ctx.command)
 		return
-	# 次の問題へ進む
-	session.NEXT.set()
+
+	full_command_name = ctx.command.qualified_name
+	if ctx.guild is not None:
+		logger.info(
+			"アプリケーションコマンド実行 - %s | ギルド: %s (%d) | 実行者: %s (%s)",
+			full_command_name,
+			ctx.guild.name,
+			ctx.guild.id,
+			ctx.user,
+			ctx.user.id,
+		)
+	else:
+		logger.info(
+			"アプリケーションコマンド実行 - %s | DM | 実行者: %s (%s)",
+			full_command_name,
+			ctx.user,
+			ctx.user.id,
+		)
+
+
+# アプリケーションコマンドエラー時のイベント
+@client.listen()
+async def on_application_command_error(
+	ctx: discord.ApplicationContext,
+	ex: discord.DiscordException,
+) -> None:
+	cmd_name = "!Unknown!"
+	if ctx.command is not None:
+		cmd_name = ctx.command.qualified_name
+
+	logger.error("アプリケーションコマンド実行エラー: %s", cmd_name)
+	logger.error(ex)
+
+	# クールダウン
+	if str(ex).startswith("You are on cooldown"):
+		await ctx.respond(
+			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning")),
+			ephemeral=True,
+		)
+	# その他
+	else:
+		# 内部エラーを報告してメッセージを送信する
+		await ctx.respond(
+			embed=EmbedsTemplates.internal_error(
+				error_code=await DebugLogger.report_internal_error("Exception: " + str(ex) + "\n\n" + traceback.format_exc())
+			)
+		)
 
 
 # 接続完了時

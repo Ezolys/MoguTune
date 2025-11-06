@@ -8,6 +8,7 @@
 		"embed.error.title": "エラー",
 		"embed.internal_error.title": "内部エラー",
 		"embed.internal_error.description": "内部エラーが発生しました。もう一度お試しください。\n(この問題が解決しない場合は、開発者へ報告してください。)",
+		"cmdmsg.cooldown_warning": "コマンドを実行する間隔が短すぎます。\nしばらく待ってからもう一度お試しください。",
 		"cmd.ping.result": "Pong! (`{0}` ms)",
 		"cmd.start.not_specified_voice_channel": "ボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
 		"cmd.start.already_started": "このサーバーでは {0} で既にクイズセッションが開始されています。",
@@ -15,35 +16,50 @@
 		"cmd.start.started.description": "{0} でクイズセッションを開始しました。",
 		"cmd.end.ended": "{0} のクイズセッションを終了しました。",
 		"cmd.end.quiz_not_started": "このサーバーではクイズセッションが開始されていません。",
-		"cmd.play.preparing.title": "🔳 準備中...",
+		"cmd.end.do_not_have_permission": "あなたはこのクイズの主催者ではないため、終了することはできません！",
+		"cmd.play.preparing.title": "準備中...",
 		"cmd.play.preparing.description": "クイズの準備中です...\nしばらくお待ちください...",
-		"cmd.play.preparing_complete.title": "☑️ 準備完了！",
+		"cmd.play.preparing_complete.title": "準備完了！",
 		"cmd.play.preparing_complete.description": "クイズの準備が完了しました！\n開始します...",
 		"cmd.play.not_specified_voice_channel": "クイズセッションが開始されているボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
 		"cmd.play.quiz_not_started": "このサーバーではクイズセッションが開始されていません。\nクイズセッションを開始してからもう一度お試しください。",
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
-		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\nこの問題が解消しない場合は、開発者へ報告してください。",
+		"cmd.play.not_a_playlist_url": "プレイリストのURLを指定してください。",
+		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\n(この問題が解消しない場合は、開発者へ報告してください。)",
 		"view.q.join.label": "クイズに参加",
 		"view.q.join.msg.session_not_found": "参加しようとしたクイズセッションは既に終了しています。",
 		"view.q.join.msg.already_joined": "あなたは既にこのクイズセッションに参加しています。",
 		"view.q.join.msg.joined": "クイズセッションに参加しました。",
 		"view.q.join.msg.voice_channel_not_connected": "クイズセッションが開始されているボイスチャンネルへ接続してから参加してください。",
 		"view.q.answer_button.label": "解答",
-		"view.q.answer_select.correct.title": "✅ 正解！",
-		"view.q.answer_select.correct.description": "正解です！\n{0}",
-		"view.q.answer_select.incorrect.title": "❌ 不正解...",
-		"view.q.answer_select.incorrect.description": "不正解です...\n{0}",
-		"msg.q.init.title": "▶️ クイズ開始",
-		"msg.q.init.description": "- プレイリスト: {0}\n- 問題数: `{1}`",
-		"msg.q.start.title": "❔ {0}問目",
+		"view.q.answer_button.not_joined": "あなたはこのクイズに参加していないため、解答できません！",
+		"view.q.answer_button.cannot_answered": "この問題には解答できません！",
+		"view.q.answer_button.session_not_found": "対象のクイズセッションは既に終了しています。",
+		"view.q.answer_select.correct.title": "正解！",
+		"view.q.answer_select.correct.description": "☑️ 答え: **{0}**\n\n**[🎧 聴く]({1})**",
+		"view.q.answer_select.incorrect.title": "不正解...",
+		"view.q.answer_select.incorrect.description": "不正解です...\n**{0}** ではありません...",
+		"view.q.answer_select.do_not_have_permission.description": "あなたには解答権がありません！",
+		"view.q.answer_select.session_not_found": "対象のクイズセッションは既に終了しています。",
+		"view.q.next_q_button.label": "次の問題へ",
+		"view.q.next_q_button.do_not_have_permission": "あなたはこのクイズの主催者ではないため、次の問題に進めることはできません！",
+		"view.q.next_q_button.session_not_found": "対象のクイズセッションは既に終了しています。",
+		"msg.q.init.title": "クイズ開始",
+		"msg.q.init.description": "- プレイリスト: {0}\n- 問題数: `{1}`\n- プレイヤー\n{2}",
+		"msg.q.init.must_be_at_least_two_songs": "楽曲数は2曲以上である必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",
+		"msg.q.init.not_enough_song": "楽曲数 (`{0}`) は問題数 (`{1}`) を上回る必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",
+		"msg.q.start.title": "{0}問目",
 		"msg.q.start.description": "解答ボタンを押して解答！",
-		"msg.q.answering.title": "💭 解答中...",
+		"msg.q.answer.correct.title": "正解！",
+		"msg.q.answer.correct.description": "{0} さんが正解しました！\n- 答え: {1}",
+		"msg.q.answering.title": "解答中...",
 		"msg.q.answering.description": "{0} さんが解答中です...",
-		"msg.q.answering.already.title": "⚠️ 既に解答中です！",
+		"msg.q.answering.already.title": "既に解答中です！",
 		"msg.q.answering.already.description": "{0} さんが既に解答中です！",
-		"msg.q.end.title": "🏁 クイズ終了",
+		"msg.q.answering.not_playing.description": "楽曲が再生されていません！",
+		"msg.q.end.title": "クイズ終了",
 		"msg.q.end.description": "＜結果＞\n{0}",
-		"msg.q.answer.title": "🗨️ 解答",
+		"msg.q.answer.title": "解答",
 		"msg.q.answer.description": "解答してください！"
 	},
 	"commands": {
@@ -59,15 +75,15 @@
 					"name": "query",
 					"description": "クイズに使用するプレイリストのURL (YouTube または Spotify)"
 				},
-				"search_type": {
-					"name": "search_type",
-					"description": "プレイリストURLの検索タイプ (デフォルト: YouTube)"
-				},
 				"q_count": {
 					"name": "q_count",
-					"description": "出題する問題の数 [1~50] (デフォルト: 10)"
+					"description": "出題する問題の数 (1~50) [デフォルト: 楽曲数-1]"
 				}
 			}
+		},
+		"end": {
+			"name": "end",
+			"description": "実施中のクイズを強制的に終了します。"
 		}
 	}
 }

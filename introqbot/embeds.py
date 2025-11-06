@@ -2,48 +2,48 @@ import discord
 from pycord.localizer import t
 
 
-class Notification:
+class EmbedsTemplates:
 	@classmethod
-	def info(cls, title: str, description: str = "") -> discord.Embed:
+	def info(cls, title: str, description: str = "", icon: str = ":information_source:") -> discord.Embed:
 		"""情報表示用埋め込みメッセージ"""
 		return discord.Embed(
-			title=":information_source: " + title,
+			title=icon + " " + title,
 			description=description,
 			colour=discord.Colour.from_rgb(74, 126, 183),
 		)
 
 	@classmethod
-	def success(cls, title: str = "", description: str = "") -> discord.Embed:
+	def success(cls, title: str = "", description: str = "", icon: str = ":white_check_mark:") -> discord.Embed:
 		"""成功時用埋め込みメッセージ"""
 		if title == "":
 			title = t("embed.success.title")
 
 		return discord.Embed(
-			title=":white_check_mark: " + title,
+			title=icon + " " + title,
 			description=description,
 			colour=discord.Colour.from_rgb(140, 176, 91),
 		)
 
 	@classmethod
-	def warning(cls, title: str = "", description: str = "") -> discord.Embed:
+	def warning(cls, title: str = "", description: str = "", icon: str = ":warning:") -> discord.Embed:
 		"""警告用埋め込みメッセージ"""
 		if title == "":
 			title = t("embed.warning.title")
 
 		return discord.Embed(
-			title=":warning: " + title,
+			title=icon + " " + title,
 			description=description,
 			colour=discord.Colour.from_rgb(228, 146, 16),
 		)
 
 	@classmethod
-	def error(cls, title: str = "", description: str = "") -> discord.Embed:
+	def error(cls, title: str = "", description: str = "", icon: str = ":no_entry_sign:") -> discord.Embed:
 		"""エラー発生時用埋め込みメッセージ"""
 		if title == "":
 			title = t("embed.error.title")
 
 		return discord.Embed(
-			title=":no_entry_sign: " + title,
+			title=icon + " " + title,
 			description=description,
 			colour=discord.Colour.from_rgb(247, 206, 80),
 		)
