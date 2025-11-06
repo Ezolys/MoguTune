@@ -620,12 +620,11 @@ class QuizSession:
 		logger.debug(f"解答開始: {user_id}")
 		if self.pl is None:
 			await interaction.followup.send(
-				embed=EmbedsTemplates.internal_error(
-					description="Session.player is None", error_code=await DebugLogger.report_internal_error("Session.player is None")
-				),
+				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error("Session.player is None")),
 				ephemeral=True,
 			)
 			return
+
 		# 再生中ではない場合
 		if self.pl.current is None:
 			await interaction.followup.send(
@@ -635,22 +634,7 @@ class QuizSession:
 				ephemeral=True,
 				delete_after=2,
 			)
-			# await interaction.followup.send(
-			# 	embed=EmbedsTemplates.internal_error(
-			# 		description="Session.player.current is None",
-			# 		error_code=await DebugLogger.report_internal_error("Session.player.current is None"),
-			# 	),
-			# 	ephemeral=True,
-			# )
 			return
-		# if user_id not in [player.id for player in self.players]:
-		# 	await interaction.followup.send(
-		# 		embed=EmbedsTemplates.internal_error(
-		# 			description="User is not in players", error_code=await DebugLogger.report_internal_error("User is not in players")
-		# 		),
-		# 		ephemeral=True,
-		# 	)
-		# 	return
 
 		if self.answering_player is not None:
 			# 既に解答中のプレイヤーがいる場合はエラーメッセージを送信する
@@ -681,19 +665,22 @@ class QuizSession:
 			)
 			return
 
-		# 解答ができない状態にする
-		self.can_answered = False
+		# クリックしたプレイヤーを取得
+		pl = self.get_player(user_id)
 
-		# 解答中プレイヤーを設定
-		self.answering_player = self.get_player(user_id)
 		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
-		if self.answering_player is None:
+		if pl is None:
 			await interaction.followup.send(
 				embed=EmbedsTemplates.error(description=t("view.q.answer_button.not_joined")),
 				ephemeral=True,
 				delete_after=3,
 			)
 			return
+
+		# 解答ができない状態にする
+		self.can_answered = False
+		# 解答中プレイヤーを設定
+		self.answering_player = pl
 
 		# 部品を無効化
 		# if interaction.view is not None:
