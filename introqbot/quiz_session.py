@@ -83,7 +83,7 @@ class QuizNextQButtonView(discord.ui.View):
 		# セッションが存在するかチェック
 		if self.session is None:
 			await interaction.response.send_message(
-				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
+				embed=EmbedsTemplates.error(description=t("view.q.next_q_button.session_not_found")),
 				ephemeral=True,
 				delete_after=3,
 			)
@@ -161,7 +161,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		# セッションが存在するかチェック
 		if self.session is None:
 			_ = await interaction.response.send_message(
-				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
+				embed=EmbedsTemplates.error(description=t("view.q.answer_select.session_not_found")),
 				ephemeral=True,
 				delete_after=3,
 			)
