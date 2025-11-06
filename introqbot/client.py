@@ -103,9 +103,9 @@ async def on_application_command_error(
 	logger.error(ex)
 
 	# クールダウン
-	if str(ex).startswith("You are on cooldown"):
+	if isinstance(ex, commands.CommandOnCooldown):
 		await ctx.respond(
-			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning")),
+			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning", int(ex.retry_after))),
 			ephemeral=True,
 		)
 	# その他
