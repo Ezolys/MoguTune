@@ -4,11 +4,13 @@ from os import getenv
 
 import discord
 import mafic
-from discord.ext import commands
+from discord.ext import commands, tasks
 from pycord.localizer import t
 
+from introqbot.app import App
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.kumasan import KumaSan
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
 
@@ -50,6 +52,12 @@ intents.guilds = True
 intents.voice_states = True
 client = Bot(intents=intents, debug_guilds=[1118692349250392184, 1378181427945930843])
 i18n = Localization(client)
+
+
+# 定期的に生存確認
+@tasks.loop(minutes=1)
+async def send_heartbeat() -> None:
+	await KumaSan.ping()
 
 
 # アプリケーションコマンド実行時のイベント
@@ -137,7 +145,14 @@ async def on_ready() -> None:
 		logger.error("内部エラー報告機能の初期化に失敗")
 		logger.error(traceback.format_exc())
 
-	logger.info(f"ログイン完了: {client.user}")
+	# ステータス表示を更新
+	await client.change_presence(
+		activity=discord.Game(name=f"/play | v{App.VERSION_STRING}"),
+	)
+
+	await KumaSan.ping(message=f"ログイン完了 ({client.latency * 1000} ms)")
+
+	logger.info(f"ログイン完了: {client.user} ({client.latency * 1000} ms)")
 
 
 def run() -> None:
