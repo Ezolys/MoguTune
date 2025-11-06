@@ -26,7 +26,10 @@ class QuizJoinView(discord.ui.View):
 	@discord.ui.button(emoji="arrow_right")
 	async def button_callback(self, button: discord.Button, interaction: discord.Interaction) -> None:
 		logger.debug(f"参加ボタンクリック: {self.session_id}")
+
+		# セッションを取得する
 		session = quiz_session_manager.get_session(self.session_id)
+
 		# セッションが存在するかチェック
 		if session is None:
 			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
@@ -73,6 +76,9 @@ class QuizNextQButtonView(discord.ui.View):
 	# 解答ボタン
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
+
+		# セッションを取得し直す
+		self.session = quiz_session_manager.get_session(self.session_id)
 
 		# セッションが存在するかチェック
 		if self.session is None:
@@ -148,6 +154,10 @@ class QuizAnswerSelectView(discord.ui.View):
 	# 解答選択肢
 	async def answer_select_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答選択肢クリック: {self.session_id}")
+
+		# セッションを取得し直す
+		self.session = quiz_session_manager.get_session(self.session_id)
+
 		# セッションが存在するかチェック
 		if self.session is None:
 			_ = await interaction.response.send_message(
@@ -231,22 +241,14 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		await interaction.response.defer()
 
+		# セッションを取得し直す
+		self.session = quiz_session_manager.get_session(self.session_id)
+
 		# セッションが存在するかチェック
 		if self.session is None:
 			# セッションが見つからない場合はエラーメッセージを送信する
 			await interaction.respond(
-				embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")),
-				ephemeral=True,
-				delete_after=3,
-			)
-			return
-
-		if not self.session.can_answered:
-			# 解答ができない状態の場合はエラーメッセージを送信する
-			await interaction.respond(
-				embed=EmbedsTemplates.warning(
-					description=t("view.q.answer_button.cannot_answered"),
-				),
+				embed=EmbedsTemplates.error(description=t("view.q.answer_button.session_not_found")),
 				ephemeral=True,
 				delete_after=3,
 			)
@@ -437,8 +439,11 @@ class QuizSession:
 	async def end(self) -> None:
 		"""クイズを終了する"""
 		self.playing = False
-		await self.pl.stop()
-		self.reset()
+		try:
+			await self.pl.stop()
+		except Exception:
+			logger.error("- 再生終了エラー")
+			logger.error(traceback.format_exc())
 
 	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
 		"""クイズを開始する"""
@@ -604,6 +609,7 @@ class QuizSession:
 
 			logger.debug("クイズ終了")
 			# 終了
+			self.reset()
 			await self.end()
 			return True
 		except Exception:
@@ -658,6 +664,17 @@ class QuizSession:
 						).mention,
 					),
 					icon="⚠️",
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		if not self.can_answered:
+			# 解答ができない状態の場合はエラーメッセージを送信する
+			await interaction.respond(
+				embed=EmbedsTemplates.warning(
+					description=t("view.q.answer_button.cannot_answered"),
 				),
 				ephemeral=True,
 				delete_after=3,
@@ -811,8 +828,17 @@ class QuizSessionManager:
 		"""セッションを終了して削除する"""
 		logger.debug(f"セッション終了: {guild_id}")
 		if guild_id in self.sessions:
+			session = self.sessions[guild_id]
 			await self.sessions[guild_id].end()
 			self.delete_session(guild_id)
+			# ボイスチャンネルから切断する
+			try:
+				if session.voice_channel is not None and session.voice_channel.guild.voice_client is not None:
+					await session.voice_channel.guild.voice_client.disconnect()
+			except Exception:
+				logger.error("- ボイスチャンネル切断エラー")
+				logger.error(traceback.format_exc())
+				await DebugLogger.report_internal_error(traceback.format_exc())
 
 
 quiz_session_manager = QuizSessionManager()

@@ -34,6 +34,7 @@
 		"view.q.answer_button.label": "解答",
 		"view.q.answer_button.not_joined": "あなたはこのクイズに参加していないため、解答できません！",
 		"view.q.answer_button.cannot_answered": "この問題には解答できません！",
+		"view.q.answer_button.session_not_found": "参加しようとしたクイズセッションは既に終了しています。",
 		"view.q.answer_select.correct.title": "正解！",
 		"view.q.answer_select.correct.description": "☑️ 答え: **{0}**\n\n**[🎧 聴く]({1})**",
 		"view.q.answer_select.incorrect.title": "不正解...",

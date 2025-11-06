@@ -133,7 +133,7 @@ class QuizCommands(discord.Cog):
 		# クイズセッションを削除する
 		quiz_session_manager.delete_session(session.guild_id)
 
-		# ボイスチャンネルから切断する
+		# ボイスチャンネルから切断できていない場合は念の為切断する
 		if voice_channel is not None and voice_channel.guild.voice_client is not None:
 			await voice_channel.guild.voice_client.disconnect()
 
@@ -159,9 +159,6 @@ class QuizCommands(discord.Cog):
 				return
 			# クイズを強制終了する
 			await quiz_session_manager.end_session(session.guild_id)
-			# ボイスチャンネルから切断する
-			if session.voice_channel is not None and session.voice_channel.guild.voice_client is not None:
-				await session.voice_channel.guild.voice_client.disconnect()
 			await ctx.respond(
 				embed=EmbedsTemplates.success(description=t("cmd.end.ended", ctx.guild.get_channel(session.channel_id).mention)),
 				ephemeral=True,
