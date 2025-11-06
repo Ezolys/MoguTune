@@ -50,7 +50,10 @@ class Bot(commands.Bot):
 intents = discord.Intents.default()
 intents.guilds = True
 intents.voice_states = True
-client = Bot(intents=intents, debug_guilds=[1118692349250392184, 1378181427945930843])
+client = Bot(intents=intents)
+if getenv("DEBUG", "false") == "true":
+	logger.info("デバッグモード有効")
+	client.debug_guilds = [1118692349250392184, 1378181427945930843]
 i18n = Localization(client)
 
 
