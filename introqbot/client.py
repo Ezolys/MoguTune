@@ -154,6 +154,9 @@ async def on_ready() -> None:
 
 	logger.info(f"ログイン完了: {client.user} ({client.latency * 1000} ms)")
 
+	# 生存確認ループ開始
+	send_heartbeat.start()
+
 
 def run() -> None:
 	# 言語データを読み込む

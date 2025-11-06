@@ -35,13 +35,13 @@ class KumaSan:
 					result.elapsed.seconds,
 				)
 			else:
-				logger.debug(
+				logger.info(
 					"Heartbeat send complete - State: %s | Msg: %s | Ping: %s ",
 					state,
 					message,
 					ping,
 				)
-				logger.debug(
+				logger.info(
 					"- Status code: %s / Elapsed time: %ds",
 					result.status_code,
 					result.elapsed.seconds,
