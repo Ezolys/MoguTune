@@ -28,13 +28,20 @@ class Bot(commands.Bot):
 		self.loop.create_task(self.add_nodes())
 
 	async def add_nodes(self) -> None:
-		# FIXME: 仮
+		"""環境変数からLavalinkのノード情報を読み込んで追加する"""
+		host = getenv("LAVALINK_HOST", "localhost")
+		port = int(getenv("LAVALINK_PORT", "2333"))
+		password = getenv("LAVALINK_PASSWORD", "youshallnotpass")
+		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
+		label = getenv("LAVALINK_LABEL", host)
+
+		logger.info("Lavalink ノードを追加: %s:%d (Secure: %s)", host, port, secure)
 		await self.pool.create_node(
-			host="localhost",
-			port=2333,
-			label="localhost",
-			password="youshallnotpass",
-			secure=False,
+			host=host,
+			port=port,
+			label=label,
+			password=password,
+			secure=secure,
 		)
 
 
