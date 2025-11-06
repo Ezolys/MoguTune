@@ -4,13 +4,12 @@ import traceback
 
 import discord
 import mafic
-from discord import SlashCommandGroup
 from discord.ext import commands
 from pycord.localizer import t
 
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
-from introqbot.quiz_session import QuizJoinView, quiz_session_manager
+from introqbot.quiz_session import quiz_session_manager
 
 logger = logging.getLogger(__name__)
 
