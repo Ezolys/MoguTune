@@ -797,7 +797,8 @@ class QuizSessionManager:
 	def delete_session(self, guild_id: int) -> None:
 		"""セッションを削除する"""
 		logger.debug(f"セッション削除: {guild_id}")
-		del self.sessions[guild_id]
+		if guild_id in self.sessions:
+			del self.sessions[guild_id]
 
 	def get_session(self, guild_id: int) -> QuizSession | None:
 		"""セッションを取得する
