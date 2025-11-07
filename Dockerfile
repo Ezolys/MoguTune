@@ -1,5 +1,5 @@
 # 
-FROM python:3.14-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 # 
 WORKDIR /code
@@ -17,10 +17,11 @@ COPY ./requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 # 
+COPY main.py /code/main.py
 COPY introqbot/*.py /code/introqbot/
 COPY introqbot/cogs/commands/*.py /code/introqbot/cogs/commands/
 COPY introqbot/locales/*.json /code/introqbot/locales/
 COPY pyproject.toml /code/
 
 # 
-CMD ["python", "/code/src/main.py"]
+CMD ["python", "/code/main.py"]

@@ -1,10 +1,11 @@
 [project]
 name = "introqbot"
 version = "0.1.0"
-description = "Add your description here"
+description = "IntroQBot"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "httpx>=0.28.1",
     "mafic>=2.10.1",
     "py-cord[speed,voice]>=2.7.0rc2",
     "pycord-localizer>=0.1.3",

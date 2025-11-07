@@ -4,11 +4,13 @@ from os import getenv
 
 import discord
 import mafic
-from discord.ext import commands
+from discord.ext import commands, tasks
 from pycord.localizer import t
 
+from introqbot.app import App
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.kumasan import KumaSan
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
 
@@ -28,21 +30,37 @@ class Bot(commands.Bot):
 		self.loop.create_task(self.add_nodes())
 
 	async def add_nodes(self) -> None:
-		# FIXME: 仮
+		"""環境変数からLavalinkのノード情報を読み込んで追加する"""
+		host = getenv("LAVALINK_HOST", "localhost")
+		port = int(getenv("LAVALINK_PORT", "2333"))
+		password = getenv("LAVALINK_PASSWORD", "youshallnotpass")
+		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
+		label = getenv("LAVALINK_LABEL", host)
+
+		logger.info("Lavalink ノードを追加: %s:%d (Secure: %s)", host, port, secure)
 		await self.pool.create_node(
-			host="localhost",
-			port=2333,
-			label="localhost",
-			password="youshallnotpass",
-			secure=False,
+			host=host,
+			port=port,
+			label=label,
+			password=password,
+			secure=secure,
 		)
 
 
 intents = discord.Intents.default()
 intents.guilds = True
 intents.voice_states = True
-client = Bot(intents=intents, debug_guilds=[1118692349250392184, 1378181427945930843])
+client = Bot(intents=intents)
+if getenv("DEBUG", "false") == "true":
+	logger.info("デバッグモード有効")
+	client.debug_guilds = [1118692349250392184, 1378181427945930843]
 i18n = Localization(client)
+
+
+# 定期的に生存確認
+@tasks.loop(minutes=1)
+async def send_heartbeat() -> None:
+	await KumaSan.ping()
 
 
 # アプリケーションコマンド実行時のイベント
@@ -85,9 +103,9 @@ async def on_application_command_error(
 	logger.error(ex)
 
 	# クールダウン
-	if str(ex).startswith("You are on cooldown"):
+	if isinstance(ex, commands.CommandOnCooldown):
 		await ctx.respond(
-			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning")),
+			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning", int(ex.retry_after))),
 			ephemeral=True,
 		)
 	# その他
@@ -130,7 +148,17 @@ async def on_ready() -> None:
 		logger.error("内部エラー報告機能の初期化に失敗")
 		logger.error(traceback.format_exc())
 
-	logger.info(f"ログイン完了: {client.user}")
+	# ステータス表示を更新
+	await client.change_presence(
+		activity=discord.Game(name=f"/play | v{App.VERSION_STRING}"),
+	)
+
+	await KumaSan.ping(message=f"ログイン完了 ({client.latency * 1000} ms)")
+
+	logger.info(f"ログイン完了: {client.user} ({client.latency * 1000} ms)")
+
+	# 生存確認ループ開始
+	send_heartbeat.start()
 
 
 def run() -> None:

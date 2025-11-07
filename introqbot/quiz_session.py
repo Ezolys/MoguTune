@@ -298,6 +298,8 @@ class QuizSession:
 
 	pl: mafic.Player
 	"""プレイヤー (Mafic)"""
+	PL_VOLUME: int = 10
+	"""プレイヤーのボリューム"""
 
 	players: list[QuizPlayer] = field(default_factory=list)
 	"""参加するプレイヤーの一覧"""
@@ -559,12 +561,14 @@ class QuizSession:
 				logger.debug("- 再生開始")
 
 				# 再生
-				await self.pl.play(q)
+				await self.pl.play(q, volume=self.PL_VOLUME)
 				await self.NEXT.wait()  # 待機
 				await self.pl.pause()  # 念の為一時停止
 
 				# 解答ができない状態にする
 				self.can_answered = False
+				# 解答者をリセット
+				self.answering_player = None
 
 				logger.debug("- 再生終了")
 
@@ -677,8 +681,6 @@ class QuizSession:
 			)
 			return
 
-		# 解答ができない状態にする
-		self.can_answered = False
 		# 解答中プレイヤーを設定
 		self.answering_player = pl
 
@@ -717,15 +719,17 @@ class QuizSession:
 			# タイムアウトした場合 (解答がなかった場合)
 			logger.debug("- 解答なし: 不正解判定")
 			if self.answering_player:
+				# 不正解
 				self.answering_player.incorrect()
 		finally:
-			# 解答者をリセット (正解/不正解/タイムアウトいずれの場合も)
-			self.answering_player = None
-			await asyncio.sleep(1)
+			await asyncio.sleep(2)
 			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
-			# if not self.NEXT.is_set():
-			# 	logger.debug("- 再生再開")
-			# 	await self.pl.pause(pause=False)
+			if self.can_answered:
+				# 解答ができる状態にする
+				self.answering_player = None
+				# 再生再開
+				logger.debug("- 再生再開")
+				await self.pl.resume()
 
 		# 解答中メッセージを削除
 		try:
@@ -756,6 +760,7 @@ class QuizSession:
 			await DebugLogger.report_internal_error("Player not found")
 			# 解答者をリセット
 			self.answering_player = None
+			self.ANSWERED.set()
 			return None
 
 		if self.pl.current.uri == answer:
@@ -768,7 +773,7 @@ class QuizSession:
 			await asyncio.sleep(1)
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			logger.debug("- 正解後再生開始")
-			await self.pl.update(position=0, end_time=None, pause=False)
+			await self.pl.update(position=0, end_time=None, volume=self.PL_VOLUME, pause=False)
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()
@@ -777,12 +782,10 @@ class QuizSession:
 			return correct_track
 		# 不正解
 		logger.debug("- 不正解")
-		player.incorrect()
-		self.ANSWERED.set()
-		logger.debug("- 再生再開")
-		await self.pl.pause(pause=False)
 		# 解答ができる状態にする
 		self.can_answered = True
+		player.incorrect()
+		self.ANSWERED.set()
 		return None
 
 
