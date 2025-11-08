@@ -75,7 +75,7 @@ class QuizCommands(discord.Cog):
 		player = await voice_channel.connect(cls=mafic.Player)
 
 		# 検索タイプ
-		search_type = mafic.SearchType.YOUTUBE
+		search_type = mafic.SearchType.YOUTUBE_MUSIC
 		# search_type = mafic.SearchType[search_type]
 
 		# プレイリストを検索
