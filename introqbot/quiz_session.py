@@ -53,7 +53,7 @@ class QuizJoinView(discord.ui.View):
 			return
 
 		# セッションにボタンをクリックしたユーザーを追加する
-		session.join_player(interaction.user.id)
+		await session.join_player(interaction.user.id)
 
 		await interaction.respond(embed=EmbedsTemplates.success(description=t("view.q.join.msg.joined")), ephemeral=True)
 
@@ -119,7 +119,7 @@ class QuizNextQButtonView(discord.ui.View):
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, *args, **kwargs) -> None:
+	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 
 		self.session_id = session_id
@@ -131,12 +131,12 @@ class QuizAnswerSelectView(discord.ui.View):
 			return
 
 		logger.debug("Answer Select Options")
-		for at in self.session.get_answer_tracks():
+		for at in answer_tracks:
 			logger.debug(f"{at.title}: {at.uri}")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
-		for tr in self.session.get_answer_tracks():
+		for tr in answer_tracks:
 			# タイトルを生成
 			# YouTube の場合はアーティスト名を含めない
 			_title = tr.title if tr.source == "youtube" else tr.title + " - " + tr.author
@@ -329,65 +329,69 @@ class QuizSession:
 	NEXT: asyncio.Event = field(default_factory=asyncio.Event)
 	ANSWERED: asyncio.Event = field(default_factory=asyncio.Event)
 
-	def add_player(self, user_id: int) -> None:
+	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
 		if self.is_player_joined(user_id):
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
 		self.players.append(QuizPlayer(user_id))
 
-	def remove_player(self, user_id: int) -> None:
+	async def remove_player(self, user_id: int) -> None:
 		"""プレイヤーを削除"""
 		if not self.is_player_joined(user_id):
 			return
 		logger.debug(f"プレイヤー削除: {user_id}")
 		self.players = [player for player in self.players if player.id != user_id]
+		# プレイヤーが0人になったらクイズを終了する
+		if len(self.players) == 0:
+			logger.debug("- プレイヤー数0人: クイズ終了")
+			await self.end()
 
-	def add_queue(self, user_id: int) -> None:
+	async def add_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを追加"""
 		if user_id in self.queue:
 			return
 		logger.debug(f"参加待ちプレイヤー追加: {user_id}")
 		self.queue.append(user_id)
 
-	def remove_queue(self, user_id: int) -> None:
+	async def remove_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを削除"""
 		if user_id not in self.queue:
 			return
 		logger.debug(f"参加待ちプレイヤー削除: {user_id}")
 		self.queue.remove(user_id)
 
-	def join_queued_players(self) -> None:
+	async def join_queued_players(self) -> None:
 		"""参加待ちのプレイヤー全員を参加させる"""
 		logger.debug("参加待ちプレイヤー参加")
 		for user_id in self.queue:
 			logger.debug(f"- {user_id}")
-			self.add_player(user_id)
+			await self.add_player(user_id)
 		self.queue = []
 
 	def is_player_joined(self, user_id: int) -> bool:
 		"""プレイヤーが参加しているかどうかを返す"""
 		return user_id in [player.id for player in self.players]
 
-	def join_player(self, user_id: int) -> None:
+	async def join_player(self, user_id: int) -> None:
 		"""プレイヤーを参加させる
 
 		既にクイズが開始されている場合は順番待ちに追加する
 		"""
 		if not self.is_player_joined(user_id):
 			if self.playing:
-				self.add_queue(user_id)
+				await self.add_queue(user_id)
 			else:
-				self.add_player(user_id)
+				await self.add_player(user_id)
 
-	def get_player(self, user_id: int) -> QuizPlayer | None:
+	async def get_player(self, user_id: int) -> QuizPlayer | None:
 		"""プレイヤーを取得"""
 		for player in self.players:
 			if player.id == user_id:
 				return player
 		return None
 
-	def get_answer_tracks(self) -> list[mafic.Track]:
+	async def get_answer_tracks(self) -> list[mafic.Track]:
 		"""解答候補のトラック一覧を生成"""
 		if self.q_original_tracks is None:
 			return []
@@ -463,7 +467,7 @@ class QuizSession:
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
 
 			# クイズの主催者を設定
-			self.owner = self.get_player(owner_id)
+			self.owner = await self.get_player(owner_id)
 
 			# トラック一覧
 			self.q_original_tracks = tracks.tracks
@@ -534,7 +538,7 @@ class QuizSession:
 				self.q_number = i
 
 				# 参加待ちのプレイヤーを参加させる
-				self.join_queued_players()
+				await self.join_queued_players()
 
 				# プレイヤー一覧テキストを更新する
 				logger.debug("- プレイヤー一覧更新")
@@ -599,13 +603,18 @@ class QuizSession:
 			logger.debug("ランキング生成")
 			# ランキングテキストを生成
 			# TODO: ただの一覧ではなく順位をつけて表示するようにする
-			ranking_list = []
-			for p in self.players:
-				member = self.guild.get_member(p.id)
-				if member is None:
-					member = await self.guild.fetch_member(p.id)
-				ranking_list.append(f"{member.mention}: `{p.point}`")
+			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
+				ranking_list = [t("msg.q.end.no_players")]
+			else:
+				ranking_list = []
+				for p in self.players:
+					member = self.guild.get_member(p.id)
+					if member is None:
+						member = await self.guild.fetch_member(p.id)
+					ranking_list.append(f"{member.mention}: `{p.point}`")
+			# 結合
 			ranking = "- " + "\n- ".join(ranking_list)
+
 			# 終了メッセージを送信する
 			await self.voice_channel.send(
 				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
@@ -670,7 +679,7 @@ class QuizSession:
 			return
 
 		# クリックしたプレイヤーを取得
-		pl = self.get_player(user_id)
+		pl = await self.get_player(user_id)
 
 		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
 		if pl is None:
@@ -706,7 +715,7 @@ class QuizSession:
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
-			view=QuizAnswerSelectView(self.guild_id),
+			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks()),
 			delete_after=5,  # 5秒後に自動削除
 			ephemeral=True,
 			wait=True,
@@ -755,7 +764,7 @@ class QuizSession:
 			return None
 
 		# 回答者を取得
-		player = self.get_player(user_id)
+		player = await self.get_player(user_id)
 		if player is None:
 			await DebugLogger.report_internal_error("Player not found")
 			# 解答者をリセット
@@ -848,12 +857,12 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 		if member.id == client.user.id or member.bot:
 			return
 		# 参加待ちの列へ追加する
-		session.add_queue(member.id)
+		await session.add_queue(member.id)
 	# クイズが行われているボイスチャンネルから退出した
 	elif before.channel is not None and after.channel is None and before.channel.id == session.channel_id:
 		# プレイヤーから削除する
-		session.remove_player(member.id)
-		session.remove_queue(member.id)
+		await session.remove_player(member.id)
+		await session.remove_queue(member.id)
 
 
 # 再生開始時イベント

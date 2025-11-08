@@ -59,6 +59,7 @@
 		"msg.q.answering.not_playing.description": "楽曲が再生されていません！",
 		"msg.q.end.title": "クイズ終了",
 		"msg.q.end.description": "＜結果＞\n{0}",
+		"msg.q.end.no_players": "プレイヤーがいません... 🥲",
 		"msg.q.answer.title": "解答",
 		"msg.q.answer.description": "解答してください！"
 	},
