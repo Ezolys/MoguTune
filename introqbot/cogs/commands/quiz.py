@@ -75,7 +75,7 @@ class QuizCommands(discord.Cog):
 		player = await voice_channel.connect(cls=mafic.Player)
 
 		# 検索タイプ
-		search_type = mafic.SearchType.YOUTUBE
+		search_type = mafic.SearchType.YOUTUBE_MUSIC
 		# search_type = mafic.SearchType[search_type]
 
 		# プレイリストを検索
@@ -116,7 +116,7 @@ class QuizCommands(discord.Cog):
 			# 自分自身とボットは除外
 			if u == self.bot.user.id or (ctx.guild.get_member(u) or await ctx.guild.fetch_member(u)).bot:
 				continue
-			session.add_player(u)
+			await session.add_player(u)
 
 		# クイズ準備完了メッセージ送信
 		await msg.edit(
