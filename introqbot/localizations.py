@@ -27,7 +27,7 @@ class Localization:
 		logger.info("言語ファイルを読み込み")
 		for lang_code in get_args(Locale):
 			# 言語ファイルのフォルダー
-			lang_file_base_path = "./introqbot/locales"
+			lang_file_base_path = "./introqbot/resources/locales"
 			# - を _ へ置き換える
 			lang = lang_code.replace("-", "_")
 			# 言語ファイルのパス

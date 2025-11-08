@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 COPY main.py /code/main.py
 COPY introqbot/*.py /code/introqbot/
 COPY introqbot/cogs/commands/*.py /code/introqbot/cogs/commands/
-COPY introqbot/locales/*.json /code/introqbot/locales/
+COPY introqbot/resources/locales/*.json /code/introqbot/resources/locales/
 COPY pyproject.toml /code/
 
 # 
