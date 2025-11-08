@@ -346,6 +346,10 @@ class QuizSession:
 		if len(self.players) == 0:
 			logger.debug("- プレイヤー数0人: クイズ終了")
 			await self.end()
+		# オーナーが退出したらクイズを終了する
+		elif self.owner is not None and self.owner.id == user_id:
+			logger.debug("- オーナー退出: クイズ終了")
+			await self.end()
 
 	async def add_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを追加"""
@@ -450,6 +454,8 @@ class QuizSession:
 		except Exception:
 			logger.error("- 再生終了エラー")
 			logger.error(traceback.format_exc())
+		# セッションを削除する
+		quiz_session_manager.delete_session(self.guild_id)
 
 	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
 		"""クイズを開始する"""
@@ -860,7 +866,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 		await session.add_queue(member.id)
 	# クイズが行われているボイスチャンネルから退出した
 	elif before.channel is not None and after.channel is None and before.channel.id == session.channel_id:
-		# プレイヤーから削除する
+		# プレイヤーを削除する 場合によってはクイズ終了
 		await session.remove_player(member.id)
 		await session.remove_queue(member.id)
 
