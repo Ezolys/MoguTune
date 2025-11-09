@@ -579,6 +579,8 @@ class QuizSession:
 				self.can_answered = False
 				# 解答者をリセット
 				self.answering_player = None
+				# 全プレイヤーの不正解フラグをリセット
+				self.refresh()
 
 				logger.debug("- 再生終了")
 
@@ -596,8 +598,6 @@ class QuizSession:
 				# 削除対象のメッセージ一覧をリセットする
 				self.next_cleanup_messages = []
 
-				# 全プレイヤーの不正解フラグをリセット
-				self.refresh()
 				# 待機
 				logger.debug("待機")
 				await asyncio.sleep(2)
@@ -698,6 +698,15 @@ class QuizSession:
 			)
 			return
 
+		# お手つき中のプレイヤーをはじく (プレイヤー数一人の場合ははじかない)
+		if pl.miss and len(self.players) > 1:
+			await interaction.followup.send(
+				embed=EmbedsTemplates.error(description=t("view.q.answer_button.miss")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
 		# 解答中プレイヤーを設定
 		self.answering_player = pl
 
@@ -719,6 +728,9 @@ class QuizSession:
 		self.ANSWERED.clear()
 		logger.debug("- 一時停止")
 		await self.pl.pause()
+
+		# 全プレイヤーの不正解フラグをリセット
+		self.refresh()
 
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(

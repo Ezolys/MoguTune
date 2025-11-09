@@ -54,7 +54,7 @@ intents.voice_states = True
 client = Bot(intents=intents)
 if getenv("DEBUG", "false") == "true":
 	logger.info("デバッグモード有効")
-	client.debug_guilds = [1118692349250392184, 1378181427945930843]
+	client.debug_guilds = [1118692349250392184, 1378181427945930843, 599952022422290442]
 i18n = Localization(client)
 
 
