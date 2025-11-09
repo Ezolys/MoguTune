@@ -1,0 +1,39 @@
+{
+	"presets": {
+		"https://music.youtube.com/playlist?list=PL4fGSI1pDJn4-UIb6RKHdxam-oAUULIGB": {
+			"platform": "YouTube Music",
+			"title_ja": "人気の曲トップ 100 - 日本",
+			"title_en-GB": "Top 100 Songs Japan",
+			"description_ja": "YouTube で今週一番人気の曲。",
+			"description_en-GB": "This week's ranking of the most popular songs on YouTube."
+		},
+		"https://music.youtube.com/playlist?list=RDCLAK5uy_nbK9qSkqYZvtMXH1fLCMmC1yn8HEm0W90": {
+			"platform": "YouTube Music",
+			"title_ja": "J-Hits!",
+			"title_en-GB": "J-Hits!",
+			"description_ja": "J-Popの最新ヒット曲を一つのプレイリストに。",
+			"description_en-GB": "Today's biggest and hottest J-Pop tracks, straight from Japan."
+		},
+		"https://music.youtube.com/playlist?list=RDCLAK5uy_k-msS6PWOCGNcJo7gx0NQIPfyFzHglYEk": {
+			"platform": "YouTube Music",
+			"title_ja": "J-Rock!",
+			"title_en-GB": "J-Rock!",
+			"description_ja": "日本のロックの最新ヒット曲を一つのプレイリストに。",
+			"description_en-GB": "The latest and hottest tracks by Japanese rock bands."
+		},
+		"https://music.youtube.com/playlist?list=RDCLAK5uy_l5aa8m8-BDq-dxZGCowwrPv-VDFxSa2pM": {
+			"platform": "YouTube Music",
+			"title_ja": "ボカロHits",
+			"title_en-GB": "Vocaloid Hits",
+			"description_ja": "ボーカロイドの最新のヒットと話題曲をまとめてお届け。",
+			"description_en-GB": "The biggest Vocaloid tracks."
+		},
+		"https://music.youtube.com/playlist?list=RDCLAK5uy_mRcc2Y3l-RoZsDt27qu8CBGpKt-5w7v8g": {
+			"platform": "YouTube Music",
+			"title_ja": "アニソン！",
+			"title_en-GB": "Anison! -Anime Songs-",
+			"description_ja": "今もっともアツい日本のアニメソング（アニソン）を一つのプレイリストに。",
+			"description_en-GB": "The hottest and latest anime tracks."
+		}
+	}
+}

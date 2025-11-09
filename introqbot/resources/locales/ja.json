@@ -21,6 +21,7 @@
 		"cmd.play.preparing.description": "クイズの準備中です...\nしばらくお待ちください...",
 		"cmd.play.preparing_complete.title": "準備完了！",
 		"cmd.play.preparing_complete.description": "クイズの準備が完了しました！\n開始します...",
+		"cmd.play.no_query": "プレイリストのURLまたはプリセットを指定してください。",
 		"cmd.play.not_specified_voice_channel": "クイズセッションが開始されているボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
 		"cmd.play.quiz_not_started": "このサーバーではクイズセッションが開始されていません。\nクイズセッションを開始してからもう一度お試しください。",
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
@@ -79,6 +80,10 @@
 				"query": {
 					"name": "query",
 					"description": "クイズに使用するプレイリストのURL (YouTube または Spotify)"
+				},
+				"preset": {
+					"name": "preset",
+					"description": "プレイリストのプリセット (これを指定した場合、query オプションは無視されます。)"
 				},
 				"q_count": {
 					"name": "q_count",

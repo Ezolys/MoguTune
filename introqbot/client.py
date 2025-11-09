@@ -13,6 +13,7 @@ from introqbot.embeds import EmbedsTemplates
 from introqbot.kumasan import KumaSan
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
+from introqbot.presets import PlaylistPresets
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -164,6 +165,8 @@ async def on_ready() -> None:
 def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
+	# プレイリストのプリセットを読み込む
+	PlaylistPresets.load()
 	# Cogs の読み込み
 	client.load_extensions("introqbot.cogs.commands")
 	# コマンドのローカライズ
