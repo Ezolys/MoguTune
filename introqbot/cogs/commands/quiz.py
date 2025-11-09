@@ -9,6 +9,7 @@ from pycord.localizer import t
 
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.presets import PlaylistPresets
 from introqbot.quiz_session import quiz_session_manager
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,12 @@ class QuizCommands(discord.Cog):
 	async def play(
 		self,
 		ctx: discord.ApplicationContext,
-		query: str,
+		query: discord.Option(str, required=False, default=""),  # pyright: ignore[reportInvalidTypeForm]
+		preset: discord.Option(
+			input_type=str,
+			required=False,
+			choices=PlaylistPresets.get_presets(),
+		),  # pyright: ignore[reportInvalidTypeForm]
 		# search_type: discord.Option(
 		# 	input_type=str,
 		# 	required=False,
@@ -40,6 +46,11 @@ class QuizCommands(discord.Cog):
 		if ctx.guild is None:
 			logger.error("Guild is None")
 			raise Exception("Guild is None")
+
+		# プレイリストのURLとプリセットどちらも指定されていない場合はエラーメッセージを返す
+		if query == "" and preset is None:
+			await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.play.no_query")), ephemeral=True)
+			return
 
 		# 準備中メッセージを送信
 		msg = await ctx.respond(
@@ -80,6 +91,10 @@ class QuizCommands(discord.Cog):
 
 		# プレイリストを検索
 		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
+		# プリセットが指定されている場合はプリセットのプレイリストを取得する
+		if preset:
+			logger.debug(f"- プリセット指定: {preset}")
+			query = preset
 		try:
 			tracks = await player.fetch_tracks(query, search_type)
 		except Exception:
