@@ -204,13 +204,16 @@ class QuizAnswerSelectView(discord.ui.View):
 			# YouTube の場合はアーティスト名を含めない
 			_track = result
 			_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
+			# 埋め込みメッセージを生成
+			_embed = EmbedsTemplates.success(
+				title=t("view.q.answer_select.correct.title"),
+				description=t("view.q.answer_select.correct.description", interaction.user.mention, _title, _track.uri),
+				icon="✅",
+			).set_thumbnail(url=_track.artwork_url)  # ジャケットを設定
+			logger.info(_track.artwork_url)
 			# メッセージを送信
 			_ = await interaction.response.send_message(
-				embed=EmbedsTemplates.success(
-					title=t("view.q.answer_select.correct.title"),
-					description=t("view.q.answer_select.correct.description", _title, _track.uri),
-					icon="✅",
-				),
+				embed=_embed,
 				view=QuizNextQButtonView(self.session_id),  # 次の問題へ ボタン
 				# ephemeral=True,
 				# delete_after=3,
