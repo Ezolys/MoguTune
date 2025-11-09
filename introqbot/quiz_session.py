@@ -593,6 +593,8 @@ class QuizSession:
 						logger.error("- 問題終了時メッセージクリーンアップエラー")
 						logger.error(traceback.format_exc())
 						await DebugLogger.report_internal_error(traceback.format_exc())
+				# 削除対象のメッセージ一覧をリセットする
+				self.next_cleanup_messages = []
 
 				# 全プレイヤーの不正解フラグをリセット
 				self.refresh()
