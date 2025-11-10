@@ -11,6 +11,7 @@ from pycord.localizer import t
 from introqbot.client import client
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.songle import SongleAPI
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -805,7 +806,15 @@ class QuizSession:
 			await asyncio.sleep(1)
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			logger.debug("- 正解後再生開始")
-			await self.pl.update(position=0, end_time=None, volume=self.PL_VOLUME, pause=False)
+			_position = 0.0
+			# ソースが YouTube の場合は Songle API からサビの位置を取得してそこから再生する
+			if self.pl.current.source == "youtube" and self.pl.current.uri is not None:
+				_position = await SongleAPI.get_chorus_info(self.pl.current.uri)
+				if _position is not None and _position > 0:
+					_position -= 500  # 0.5秒前
+				else:
+					_position = 0.0
+			await self.pl.update(position=_position, end_time=None, volume=self.PL_VOLUME, pause=False)
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()
