@@ -518,10 +518,12 @@ class QuizSession:
 			# プレイヤー一覧テキストを生成
 			player_mentions = []
 			for p in self.players:
-				member = self.guild.get_member(p.id)
-				if member is None:
-					member = await self.guild.fetch_member(p.id)
-				player_mentions.append(member.mention)
+				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
+				if member is not None:
+					if member.mention:
+						player_mentions.append(member.mention)
+					else:
+						player_mentions.append(member.display_name)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
 
 			# クイズ開始メッセージを送信
@@ -553,10 +555,12 @@ class QuizSession:
 				logger.debug("- プレイヤー一覧更新")
 				player_mentions = []
 				for p in self.players:
-					member = self.guild.get_member(p.id)
-					if member is None:
-						member = await self.guild.fetch_member(p.id)
-					player_mentions.append(member.mention)
+					member = await self.guild.get_or_fetch(discord.Member, p.id)
+					if member is not None:
+						if member.mention:
+							player_mentions.append(member.mention)
+						else:
+							player_mentions.append(member.display_name)
 				player_list_text = "  - " + "\n  - ".join(player_mentions)
 				start_msg.embeds[0].description = t("msg.q.init.description", tracks.name, q_count, player_list_text)
 				await start_msg.edit(embed=start_msg.embeds[0])
@@ -619,10 +623,11 @@ class QuizSession:
 			else:
 				ranking_list = []
 				for p in self.players:
-					member = self.guild.get_member(p.id)
-					if member is None:
-						member = await self.guild.fetch_member(p.id)
-					ranking_list.append(f"{member.mention}: `{p.point}`")
+					member = await self.guild.get_or_fetch(discord.Member, p.id)
+					pn = "Unknown"
+					if member is not None:
+						pn = member.mention or member.display_name
+					ranking_list.append(f"{pn}: `{p.point}`")
 			# 結合
 			ranking = "- " + "\n- ".join(ranking_list)
 
@@ -648,6 +653,12 @@ class QuizSession:
 				ephemeral=True,
 			)
 			return
+		if self.guild is None:
+			await interaction.followup.send(
+				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error("Session.guild is None")),
+				ephemeral=True,
+			)
+			return
 
 		# 再生中ではない場合
 		if self.pl.current is None:
@@ -661,16 +672,14 @@ class QuizSession:
 			return
 
 		if self.answering_player is not None:
+			# 解答中のプレイヤー名を取得
+			mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
+			pn = mb.mention if mb is not None else str(self.answering_player.id)
 			# 既に解答中のプレイヤーがいる場合はエラーメッセージを送信する
 			await interaction.followup.send(
 				embed=EmbedsTemplates.warning(
 					title=t("msg.q.answering.title"),
-					description=t(
-						"msg.q.answering.already.description",
-						(
-							self.guild.get_member(self.answering_player.id) or await self.guild.fetch_member(self.answering_player.id)
-						).mention,
-					),
+					description=t("msg.q.answering.already.description", pn),
 					icon="⚠️",
 				),
 				ephemeral=True,
@@ -713,19 +722,24 @@ class QuizSession:
 		# 解答中プレイヤーを設定
 		self.answering_player = pl
 
+		# 解答中のプレイヤー名を取得
+		mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
+		pn = mb.mention if mb is not None else str(self.answering_player.id)
+
 		# 部品を無効化
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
-		as_msg = await self.voice_channel.send(
-			embed=EmbedsTemplates.info(
-				title=t("msg.q.answering.title"),
-				description=t(
-					"msg.q.answering.description", (self.guild.get_member(user_id) or await self.guild.fetch_member(user_id)).mention
-				),
-				icon="💭",
+		# 全プレイヤーに解答中メッセージを送信する
+		as_msg = None
+		if self.voice_channel:
+			as_msg = await self.voice_channel.send(
+				embed=EmbedsTemplates.info(
+					title=t("msg.q.answering.title"),
+					description=t("msg.q.answering.description", pn),
+					icon="💭",
+				)
 			)
-		)
 
 		# 一時停止する
 		self.ANSWERED.clear()
@@ -765,7 +779,8 @@ class QuizSession:
 
 		# 解答中メッセージを削除
 		try:
-			await as_msg.delete()
+			if as_msg:
+				await as_msg.delete()
 		except discord.errors.NotFound:
 			pass
 
