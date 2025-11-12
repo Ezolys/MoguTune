@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import random
 import traceback
@@ -318,6 +319,8 @@ class QuizSession:
 	"""現在解答中のプレイヤー"""
 	current_q_number: int = 0
 	"""問題番号"""
+	q_start_time: datetime.datetime | None = None
+	"""問題開始時刻"""
 	q_original_tracks: list[mafic.Track] | None = None
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
@@ -446,6 +449,7 @@ class QuizSession:
 		self.q_original_tracks = []
 		self.q_tracks = []
 		self.current_q_number = 0
+		self.q_start_time = None
 		self.answering_player = None
 		self.owner = None
 
@@ -457,6 +461,32 @@ class QuizSession:
 		except Exception:
 			logger.error("- 再生終了エラー")
 			logger.error(traceback.format_exc())
+
+		try:
+			logger.debug("ランキング生成")
+			# ランキングテキストを生成
+			# TODO: ただの一覧ではなく順位をつけて表示するようにする
+			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
+				ranking_list = [t("msg.q.end.no_players")]
+			else:
+				ranking_list = []
+				for p in self.players:
+					member = await self.guild.get_or_fetch(discord.Member, p.id)
+					pn = "Unknown"
+					if member is not None:
+						pn = member.mention or member.display_name
+					ranking_list.append(f"{pn}: `{p.point}`")
+			# 結合
+			ranking = "- " + "\n- ".join(ranking_list)
+
+			# 終了メッセージを送信する
+			await self.voice_channel.send(
+				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
+			)
+		except Exception:
+			logger.error("- 終了メッセージ送信/ランキング生成エラー")
+			logger.error(traceback.format_exc())
+
 		# セッションを削除する
 		quiz_session_manager.delete_session(self.guild_id)
 
@@ -572,6 +602,9 @@ class QuizSession:
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
 
+				# 問題開始時刻を更新
+				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)
+
 				# 解答ができる状態にする
 				self.can_answered = True
 
@@ -615,37 +648,20 @@ class QuizSession:
 			except discord.errors.NotFound:
 				pass
 
-			logger.debug("ランキング生成")
-			# ランキングテキストを生成
-			# TODO: ただの一覧ではなく順位をつけて表示するようにする
-			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
-				ranking_list = [t("msg.q.end.no_players")]
-			else:
-				ranking_list = []
-				for p in self.players:
-					member = await self.guild.get_or_fetch(discord.Member, p.id)
-					pn = "Unknown"
-					if member is not None:
-						pn = member.mention or member.display_name
-					ranking_list.append(f"{pn}: `{p.point}`")
-			# 結合
-			ranking = "- " + "\n- ".join(ranking_list)
-
-			# 終了メッセージを送信する
-			await self.voice_channel.send(
-				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
-			)
-
 			logger.debug("クイズ終了")
 			# 終了
 			self.reset()
-			await self.end()
+			# await self.end()
 			return True
 		except Exception:
 			return await DebugLogger.report_internal_error(traceback.format_exc())
 
 	async def raise_hand(self, interaction: discord.Interaction, user_id: int) -> None:
 		"""再生を一時停止して解答の選択肢を送信する"""
+		# 解答までにかかった時間と時刻を計算
+		answer_dt = datetime.datetime.now(tz=datetime.UTC)
+		answer_time_sec = -1 if self.q_start_time is None else f"{(answer_dt - self.q_start_time).total_seconds():.3f}"
+
 		logger.debug(f"解答開始: {user_id}")
 		if self.pl is None:
 			await interaction.followup.send(
@@ -679,7 +695,7 @@ class QuizSession:
 			await interaction.followup.send(
 				embed=EmbedsTemplates.warning(
 					title=t("msg.q.answering.title"),
-					description=t("msg.q.answering.already.description", pn),
+					description=t("msg.q.answering.already.description", pn, answer_time_sec),
 					icon="⚠️",
 				),
 				ephemeral=True,
@@ -732,11 +748,15 @@ class QuizSession:
 
 		# 全プレイヤーに解答中メッセージを送信する
 		as_msg = None
-		if self.voice_channel:
+		if self.voice_channel is not None:
 			as_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(
 					title=t("msg.q.answering.title"),
-					description=t("msg.q.answering.description", pn),
+					description=t(
+						"msg.q.answering.description",
+						pn,
+						answer_time_sec,
+					),
 					icon="💭",
 				)
 			)
