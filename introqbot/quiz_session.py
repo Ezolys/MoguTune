@@ -9,6 +9,7 @@ import discord
 import mafic
 from pycord.localizer import t
 
+from introqbot.chorus import YTMostReplayedAPI
 from introqbot.client import client
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
@@ -60,7 +61,7 @@ class QuizJoinView(discord.ui.View):
 
 
 class QuizNextQButtonView(discord.ui.View):
-	def __init__(self, session_id: int, *args, **kwargs) -> None:
+	def __init__(self, session_id: int, disabled: bool = False, *args, **kwargs) -> None:
 		super().__init__(timeout=None, *args, **kwargs)
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
@@ -70,7 +71,9 @@ class QuizNextQButtonView(discord.ui.View):
 			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
 			return
 
-		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️")
+		self.next_q_button = discord.ui.Button(
+			style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️", disabled=disabled
+		)
 		self.next_q_button.callback = self.next_q_button_callback
 		self.add_item(self.next_q_button)
 
@@ -176,8 +179,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				delete_after=3,
 			)
 			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
+			self.session.next_cleanup_messages.append(await _.original_message())
 			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
@@ -213,15 +215,35 @@ class QuizAnswerSelectView(discord.ui.View):
 			).set_thumbnail(url=_track.artwork_url)  # ジャケットを設定
 			logger.info(_track.artwork_url)
 			# メッセージを送信
+			next_q_button = QuizNextQButtonView(self.session_id, disabled=True)
 			_ = await interaction.response.send_message(
 				embed=_embed,
-				view=QuizNextQButtonView(self.session_id),  # 次の問題へ ボタン
+				view=next_q_button,  # 次の問題へ ボタン
 				# ephemeral=True,
 				# delete_after=3,
 			)
 			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
+			self.session.next_cleanup_messages.append(await _.original_message())
+
+			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
+			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
+			if (
+				self.session.pl.current is not None
+				and self.session.pl.current.source == "youtube"
+				and self.session.pl.current.uri is not None
+			):
+				logger.debug("- 正解後再生開始")
+				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
+				logger.info(f"Play Position: {_position}")
+				if _position is None:
+					_position = 0
+				elif _position > 0:
+					_position -= 1000  # 1秒前
+				await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
+
+			# 次の問題へボタンを有効化
+			next_q_button.enable_all_items()
+			await _.edit_original_response(view=next_q_button)
 
 
 class QuizAnswerButtonView(discord.ui.View):
@@ -837,10 +859,6 @@ class QuizSession:
 			correct_track = self.pl.current
 			# 正解
 			player.correct()
-			await asyncio.sleep(1)
-			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
-			logger.debug("- 正解後再生開始")
-			await self.pl.update(position=0, end_time=None, volume=self.PL_VOLUME, pause=False)
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()
