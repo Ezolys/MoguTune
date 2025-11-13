@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class YTMostReplayedAPI:
-	_API_URL: ClassVar[str] = "http://" + getenv("YTMRAPI_FQDN", "localhost") + ":" + getenv("YTMRAPI_PORT", "80") + "/"
+	_API_URL: ClassVar[str] = getenv("YTMRAPI_URL", "localhost") + "/"
 	cl = AsyncClient()
 
 	@classmethod
