@@ -10,9 +10,8 @@ from httpx import AsyncClient
 logger = logging.getLogger(__name__)
 
 
-# TODO: キャッシュ実装
 class YTMostReplayedAPI:
-	_API_URL: ClassVar[str] = "http://eleven:2334/"
+	_API_URL: ClassVar[str] = "http://" + getenv("YTMRAPI_FQDN", "localhost") + ":" + getenv("YTMRAPI_PORT", "80") + "/"
 	cl = AsyncClient()
 
 	@classmethod
