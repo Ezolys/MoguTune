@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # TODO: キャッシュ実装
 class YTMostReplayedAPI:
-	_API_URL: ClassVar[str] = "http://localhost:2334/"
+	_API_URL: ClassVar[str] = "http://eleven:2334/"
 	cl = AsyncClient()
 
 	@classmethod
