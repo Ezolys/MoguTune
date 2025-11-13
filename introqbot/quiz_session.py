@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import random
 import traceback
@@ -319,6 +320,8 @@ class QuizSession:
 	"""現在解答中のプレイヤー"""
 	current_q_number: int = 0
 	"""問題番号"""
+	q_start_time: datetime.datetime | None = None
+	"""問題開始時刻"""
 	q_original_tracks: list[mafic.Track] | None = None
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
@@ -447,6 +450,7 @@ class QuizSession:
 		self.q_original_tracks = []
 		self.q_tracks = []
 		self.current_q_number = 0
+		self.q_start_time = None
 		self.answering_player = None
 		self.owner = None
 
@@ -458,6 +462,32 @@ class QuizSession:
 		except Exception:
 			logger.error("- 再生終了エラー")
 			logger.error(traceback.format_exc())
+
+		try:
+			logger.debug("ランキング生成")
+			# ランキングテキストを生成
+			# TODO: ただの一覧ではなく順位をつけて表示するようにする
+			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
+				ranking_list = [t("msg.q.end.no_players")]
+			else:
+				ranking_list = []
+				for p in self.players:
+					member = await self.guild.get_or_fetch(discord.Member, p.id)
+					pn = "Unknown"
+					if member is not None:
+						pn = member.mention or member.display_name
+					ranking_list.append(f"{pn}: `{p.point}`")
+			# 結合
+			ranking = "- " + "\n- ".join(ranking_list)
+
+			# 終了メッセージを送信する
+			await self.voice_channel.send(
+				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
+			)
+		except Exception:
+			logger.error("- 終了メッセージ送信/ランキング生成エラー")
+			logger.error(traceback.format_exc())
+
 		# セッションを削除する
 		quiz_session_manager.delete_session(self.guild_id)
 
@@ -519,10 +549,12 @@ class QuizSession:
 			# プレイヤー一覧テキストを生成
 			player_mentions = []
 			for p in self.players:
-				member = self.guild.get_member(p.id)
-				if member is None:
-					member = await self.guild.fetch_member(p.id)
-				player_mentions.append(member.mention)
+				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
+				if member is not None:
+					if member.mention:
+						player_mentions.append(member.mention)
+					else:
+						player_mentions.append(member.display_name)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
 
 			# クイズ開始メッセージを送信
@@ -554,10 +586,12 @@ class QuizSession:
 				logger.debug("- プレイヤー一覧更新")
 				player_mentions = []
 				for p in self.players:
-					member = self.guild.get_member(p.id)
-					if member is None:
-						member = await self.guild.fetch_member(p.id)
-					player_mentions.append(member.mention)
+					member = await self.guild.get_or_fetch(discord.Member, p.id)
+					if member is not None:
+						if member.mention:
+							player_mentions.append(member.mention)
+						else:
+							player_mentions.append(member.display_name)
 				player_list_text = "  - " + "\n  - ".join(player_mentions)
 				start_msg.embeds[0].description = t("msg.q.init.description", tracks.name, q_count, player_list_text)
 				await start_msg.edit(embed=start_msg.embeds[0])
@@ -568,6 +602,9 @@ class QuizSession:
 				# タイトルを更新
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
+
+				# 問題開始時刻を更新
+				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)
 
 				# 解答ができる状態にする
 				self.can_answered = True
@@ -612,40 +649,30 @@ class QuizSession:
 			except discord.errors.NotFound:
 				pass
 
-			logger.debug("ランキング生成")
-			# ランキングテキストを生成
-			# TODO: ただの一覧ではなく順位をつけて表示するようにする
-			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
-				ranking_list = [t("msg.q.end.no_players")]
-			else:
-				ranking_list = []
-				for p in self.players:
-					member = self.guild.get_member(p.id)
-					if member is None:
-						member = await self.guild.fetch_member(p.id)
-					ranking_list.append(f"{member.mention}: `{p.point}`")
-			# 結合
-			ranking = "- " + "\n- ".join(ranking_list)
-
-			# 終了メッセージを送信する
-			await self.voice_channel.send(
-				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
-			)
-
 			logger.debug("クイズ終了")
 			# 終了
 			self.reset()
-			await self.end()
+			# await self.end()
 			return True
 		except Exception:
 			return await DebugLogger.report_internal_error(traceback.format_exc())
 
 	async def raise_hand(self, interaction: discord.Interaction, user_id: int) -> None:
 		"""再生を一時停止して解答の選択肢を送信する"""
+		# 解答までにかかった時間と時刻を計算
+		answer_dt = datetime.datetime.now(tz=datetime.UTC)
+		answer_time_sec = -1 if self.q_start_time is None else f"{(answer_dt - self.q_start_time).total_seconds():.3f}"
+
 		logger.debug(f"解答開始: {user_id}")
 		if self.pl is None:
 			await interaction.followup.send(
 				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error("Session.player is None")),
+				ephemeral=True,
+			)
+			return
+		if self.guild is None:
+			await interaction.followup.send(
+				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error("Session.guild is None")),
 				ephemeral=True,
 			)
 			return
@@ -662,16 +689,14 @@ class QuizSession:
 			return
 
 		if self.answering_player is not None:
+			# 解答中のプレイヤー名を取得
+			mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
+			pn = mb.mention if mb is not None else str(self.answering_player.id)
 			# 既に解答中のプレイヤーがいる場合はエラーメッセージを送信する
 			await interaction.followup.send(
 				embed=EmbedsTemplates.warning(
 					title=t("msg.q.answering.title"),
-					description=t(
-						"msg.q.answering.already.description",
-						(
-							self.guild.get_member(self.answering_player.id) or await self.guild.fetch_member(self.answering_player.id)
-						).mention,
-					),
+					description=t("msg.q.answering.already.description", pn, answer_time_sec),
 					icon="⚠️",
 				),
 				ephemeral=True,
@@ -714,19 +739,28 @@ class QuizSession:
 		# 解答中プレイヤーを設定
 		self.answering_player = pl
 
+		# 解答中のプレイヤー名を取得
+		mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
+		pn = mb.mention if mb is not None else str(self.answering_player.id)
+
 		# 部品を無効化
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
-		as_msg = await self.voice_channel.send(
-			embed=EmbedsTemplates.info(
-				title=t("msg.q.answering.title"),
-				description=t(
-					"msg.q.answering.description", (self.guild.get_member(user_id) or await self.guild.fetch_member(user_id)).mention
-				),
-				icon="💭",
+		# 全プレイヤーに解答中メッセージを送信する
+		as_msg = None
+		if self.voice_channel is not None:
+			as_msg = await self.voice_channel.send(
+				embed=EmbedsTemplates.info(
+					title=t("msg.q.answering.title"),
+					description=t(
+						"msg.q.answering.description",
+						pn,
+						answer_time_sec,
+					),
+					icon="💭",
+				)
 			)
-		)
 
 		# 一時停止する
 		self.ANSWERED.clear()
@@ -766,7 +800,8 @@ class QuizSession:
 
 		# 解答中メッセージを削除
 		try:
-			await as_msg.delete()
+			if as_msg:
+				await as_msg.delete()
 		except discord.errors.NotFound:
 			pass
 

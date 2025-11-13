@@ -126,11 +126,17 @@ class QuizCommands(discord.Cog):
 
 		# クイズセッションを新規作成
 		session = quiz_session_manager.create_session(ctx.guild.id, voice_channel.id, player)
+		bot_id = self.bot.user.id if self.bot.user else 0
 		# VCに参加しているユーザーをプレイヤーとして追加する
 		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
-			# 自分自身とボットは除外
-			if u == self.bot.user.id or (ctx.guild.get_member(u) or await ctx.guild.fetch_member(u)).bot:
+			# 自分自身は除外
+			_m = await ctx.guild.get_or_fetch(discord.Member, u)
+			if u == bot_id:
 				continue
+			# ボットは除外
+			if _m is not None and _m.bot:
+				continue
+			# クイズにユーザーを追加
 			await session.add_player(u)
 
 		# クイズ準備完了メッセージ送信
