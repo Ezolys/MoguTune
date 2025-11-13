@@ -179,8 +179,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				delete_after=3,
 			)
 			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
+			self.session.next_cleanup_messages.append(await _.original_message())
 			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
@@ -224,8 +223,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				# delete_after=3,
 			)
 			# 削除対象メッセージに追加
-			if _.message is not None:
-				self.session.next_cleanup_messages.append(_.message)
+			self.session.next_cleanup_messages.append(await _.original_message())
 
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
