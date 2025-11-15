@@ -18,46 +18,45 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class QuizJoinView(discord.ui.View):
-	session_id: int
+class QuizReplayButtonView(discord.ui.View):
+	def __init__(self, query: str, q_count: int, *args, **kwargs) -> None:
+		super().__init__(timeout=None, *args, **kwargs)
 
-	def __init__(self, session_id: int, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
-		self.session_id = session_id
+		self.query = query
+		self.q_count = q_count
 
-	@discord.ui.button(emoji="arrow_right")
-	async def button_callback(self, button: discord.Button, interaction: discord.Interaction) -> None:
-		logger.debug(f"参加ボタンクリック: {self.session_id}")
+		self.replay_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.replay_button.label"), emoji="🔁")
+		self.replay_button.callback = self.replay_button_callback
+		self.add_item(self.replay_button)
 
-		# セッションを取得する
-		session = quiz_session_manager.get_session(self.session_id)
+	async def replay_button_callback(self, interaction: discord.Interaction) -> None:
+		logger.debug("リプレイボタンクリック")
 
-		# セッションが存在するかチェック
-		if session is None:
-			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
-			return
-
-		# 既にクイズに参加しているかどうかチェック
-		if session.is_player_joined(interaction.user.id):
-			await interaction.respond(embed=EmbedsTemplates.warning(description=t("view.q.join.msg.already_joined")), ephemeral=True)
-			return
-
-		# クイズが行われているボイスチャンネルにユーザーが接続しているかチェック
-		if interaction.user.voice is None:
+		# ユーザー&ギルドのチェック
+		if interaction.user is None:
 			await interaction.respond(
-				embed=EmbedsTemplates.warning(description=t("view.q.join.msg.voice_channel_not_connected")), ephemeral=True
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error(f"{__class__.__name__} interaction.user is None")
+				)
 			)
 			return
-		if interaction.user.voice.channel.id != session.channel_id:
+		if not isinstance(interaction.user, discord.Member):
 			await interaction.respond(
-				embed=EmbedsTemplates.warning(description=t("view.q.join.msg.voice_channel_not_connected")), ephemeral=True
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error(f"{__class__.__name__} interaction.user is not a Member")
+				)
+			)
+			return
+		if interaction.guild is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error(f"{__class__.__name__} interaction.guild is None")
+				)
 			)
 			return
 
-		# セッションにボタンをクリックしたユーザーを追加する
-		await session.join_player(interaction.user.id)
-
-		await interaction.respond(embed=EmbedsTemplates.success(description=t("view.q.join.msg.joined")), ephemeral=True)
+		# クイズを開始する
+		await prepare_play(interaction, interaction.user, interaction.guild, self.query, q_count=self.q_count)
 
 
 class QuizNextQButtonView(discord.ui.View):
@@ -71,15 +70,30 @@ class QuizNextQButtonView(discord.ui.View):
 			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
 			return
 
-		self.next_q_button = discord.ui.Button(
-			style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️", disabled=disabled
+		# 次の問題があるかどうかに応じてラベルと絵文字を設定
+		label, emoji = (
+			(t("view.q.next_q_button.label.next"), "⏭️")
+			if not self.session.current_q_number >= self.session.q_tracks_count
+			else (t("view.q.next_q_button.label.end"), "🏁")
 		)
+
+		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=label, emoji=emoji, disabled=disabled)
 		self.next_q_button.callback = self.next_q_button_callback
 		self.add_item(self.next_q_button)
 
 	# 解答ボタン
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		# セッションを取得し直す
 		self.session = quiz_session_manager.get_session(self.session_id)
@@ -101,6 +115,7 @@ class QuizNextQButtonView(discord.ui.View):
 				ephemeral=True,
 				delete_after=3,
 			)
+			return
 
 		# クイズのオーナーだけがこのボタンを押せるようにする
 		if self.session.owner is not None and self.session.owner.id != interaction.user.id:
@@ -158,6 +173,16 @@ class QuizAnswerSelectView(discord.ui.View):
 	# 解答選択肢
 	async def answer_select_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答選択肢クリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		# セッションを取得し直す
 		self.session = quiz_session_manager.get_session(self.session_id)
@@ -227,18 +252,15 @@ class QuizAnswerSelectView(discord.ui.View):
 
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
-			if (
-				self.session.pl.current is not None
-				and self.session.pl.current.source == "youtube"
-				and self.session.pl.current.uri is not None
-			):
+			if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 				logger.debug("- 正解後再生開始")
-				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
-				logger.info(f"Play Position: {_position}")
-				if _position is None:
+				if self.session.pl.current.source == "youtube":
+					_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
+					logger.info(f"Play Position: {_position}")
+					if _position is None:
+						_position = 0
+				else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
 					_position = 0
-				# elif _position > 0:
-				# 	_position -= 3000  # 3秒前
 				await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
 
 			# 次の問題へボタンを有効化
@@ -257,13 +279,29 @@ class QuizAnswerButtonView(discord.ui.View):
 			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
 			return
 
-		self.answer_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=t("view.q.answer_button.label"), emoji="💭")
+		# 解答ボタン
+		self.answer_button = discord.ui.Button(style=discord.ButtonStyle.green, label=t("view.q.answer_button.label"), emoji="💭")
 		self.answer_button.callback = self.answer_button_callback
 		self.add_item(self.answer_button)
+
+		# 問題スキップボタン
+		self.skip_button = discord.ui.Button(style=discord.ButtonStyle.gray, label=t("view.q.skip_button.label"), emoji="⏭️")
+		self.skip_button.callback = self.skip_button_callback
+		self.add_item(self.skip_button)
 
 	# 解答ボタン
 	async def answer_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答ボタンクリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		await interaction.response.defer()
 
@@ -274,7 +312,7 @@ class QuizAnswerButtonView(discord.ui.View):
 		if self.session is None:
 			# セッションが見つからない場合はエラーメッセージを送信する
 			await interaction.respond(
-				embed=EmbedsTemplates.error(description=t("view.q.answer_button.session_not_found")),
+				embed=EmbedsTemplates.error(description=t("view.q.skip_button.session_not_found")),
 				ephemeral=True,
 				delete_after=3,
 			)
@@ -282,6 +320,118 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 再生停止&解答セレクター送信
 		await self.session.raise_hand(interaction, interaction.user.id)
+
+	# スキップボタン
+	async def skip_button_callback(self, interaction: discord.Interaction) -> None:
+		logger.debug(f"スキップボタンクリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# セッションを取得し直す
+		self.session = quiz_session_manager.get_session(self.session_id)
+
+		# セッションが存在するかチェック
+		if self.session is None:
+			# セッションが見つからない場合はエラーメッセージを送信する
+			await interaction.respond(
+				embed=EmbedsTemplates.error(description=t("view.q.skip_button.session_not_found")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# クイズのオーナーだけがこのボタンを押せるようにする
+		if self.session.owner is not None and self.session.owner.id != interaction.user.id:
+			await interaction.respond(
+				embed=EmbedsTemplates.error(
+					description=t("view.q.skip_button.do_not_have_permission"),
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# 楽曲を再生していない場合はエラーメッセージを返す
+		if self.session.pl.current is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_playing")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# 解答ができない状態の場合はエラーメッセージを送信する
+		if not self.session.can_answered or self.session.answering_player is not None:
+			await interaction.respond(
+				embed=EmbedsTemplates.warning(
+					description=t("view.q.skip_button.cannot_skipped"),
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# クリックしたプレイヤーを取得
+		pl = await self.session.get_player(interaction.user.id)
+
+		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
+		if pl is None:
+			await interaction.followup.send(
+				embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_joined")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# 解答ができない状態にする
+		self.session.can_answered = False
+
+		# 通知メッセージを表示させるために問題終了後の待機時間を4秒にする
+		self.session.q_wait_seconds = 4
+
+		# 通知メッセージに情報を表示するために再生している楽曲を保持する
+		pl_current = self.session.pl.current
+
+		# 通知メッセージを送信する
+		next_q_button = QuizNextQButtonView(self.session_id, disabled=True)  # 次の問題へ ボタン
+		msg = await interaction.respond(
+			embed=EmbedsTemplates.info(
+				title=t("msg.q.skip.title"),
+				description=t("msg.q.skip.description", pl_current.title, pl_current.uri),
+				icon="⏭️",
+			),
+			view=next_q_button,
+		)
+
+		# 削除対象メッセージに追加
+		if isinstance(msg, discord.Interaction):
+			msg = await msg.original_message()
+		self.session.next_cleanup_messages.append(msg)
+
+		# 答えの楽曲を再生する
+		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
+		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
+			logger.debug("- スキップ後再生開始")
+			if self.session.pl.current.source == "youtube":
+				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
+				logger.info(f"Play Position: {_position}")
+				if _position is None:
+					_position = 0
+			else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
+				_position = 0
+			await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
+
+		# 次の問題へボタンを有効化
+		next_q_button.enable_all_items()
+		await msg.edit(view=next_q_button)
 
 
 @dataclass
@@ -324,6 +474,10 @@ class QuizSession:
 
 	pl: mafic.Player
 	"""プレイヤー (Mafic)"""
+
+	query: str
+	"""プレイリストのURL"""
+
 	PL_VOLUME: int = 10
 	"""プレイヤーのボリューム"""
 
@@ -343,12 +497,18 @@ class QuizSession:
 	"""問題番号"""
 	q_start_time: datetime.datetime | None = None
 	"""問題開始時刻"""
+	DEFAULT_Q_WAIT_SECONDS: int = 1
+	q_wait_seconds: int = 1
+	"""問題開始待ち時間 (秒)"""
+
 	q_original_tracks: list[mafic.Track] | None = None
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
 	"""問題のトラック一覧"""
+	q_tracks_count: int = 0
+	"""問題のトラック数"""
 
-	next_cleanup_messages: list[discord.Message] = field(default_factory=list)
+	next_cleanup_messages: list[discord.Message | discord.WebhookMessage] = field(default_factory=list)
 	"""次の問題開始時に削除するメッセージのリスト"""
 
 	can_answered: bool = False
@@ -470,6 +630,7 @@ class QuizSession:
 		# 各変数をリセット
 		self.q_original_tracks = []
 		self.q_tracks = []
+		self.q_tracks_count = 0
 		self.current_q_number = 0
 		self.q_start_time = None
 		self.answering_player = None
@@ -482,31 +643,6 @@ class QuizSession:
 			await self.pl.stop()
 		except Exception:
 			logger.error("- 再生終了エラー")
-			logger.error(traceback.format_exc())
-
-		try:
-			logger.debug("ランキング生成")
-			# ランキングテキストを生成
-			# TODO: ただの一覧ではなく順位をつけて表示するようにする
-			if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
-				ranking_list = [t("msg.q.end.no_players")]
-			else:
-				ranking_list = []
-				for p in self.players:
-					member = await self.guild.get_or_fetch(discord.Member, p.id)
-					pn = "Unknown"
-					if member is not None:
-						pn = member.mention or member.display_name
-					ranking_list.append(f"{pn}: `{p.point}`")
-			# 結合
-			ranking = "- " + "\n- ".join(ranking_list)
-
-			# 終了メッセージを送信する
-			await self.voice_channel.send(
-				embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁")
-			)
-		except Exception:
-			logger.error("- 終了メッセージ送信/ランキング生成エラー")
 			logger.error(traceback.format_exc())
 
 		# セッションを削除する
@@ -545,6 +681,7 @@ class QuizSession:
 
 			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
 			self.q_tracks = random.sample(tracks.tracks, len(tracks.tracks))[:q_count]
+			self.q_tracks_count = q_count
 
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < 2:
@@ -598,7 +735,7 @@ class QuizSession:
 
 				logger.debug(f"{i}問目")
 
-				self.q_number = i
+				self.current_q_number = i
 
 				# 参加待ちのプレイヤーを参加させる
 				await self.join_queued_players()
@@ -662,13 +799,41 @@ class QuizSession:
 
 				# 待機
 				logger.debug("待機")
-				await asyncio.sleep(2)
+				await asyncio.sleep(self.q_wait_seconds)
+				# 待機時間をリセット
+				self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
 
 			# 解答メッセージを削除
 			try:
 				await q_msg.delete()
 			except discord.errors.NotFound:
 				pass
+
+			try:
+				logger.debug("ランキング生成")
+				# ランキングテキストを生成
+				# TODO: ただの一覧ではなく順位をつけて表示するようにする
+				if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
+					ranking_list = [t("msg.q.end.no_players")]
+				else:
+					ranking_list = []
+					for p in self.players:
+						member = await self.guild.get_or_fetch(discord.Member, p.id)
+						pn = "Unknown"
+						if member is not None:
+							pn = member.mention or member.display_name
+						ranking_list.append(f"{pn}: `{p.point}`")
+				# 結合
+				ranking = "- " + "\n- ".join(ranking_list)
+
+				# 終了メッセージを送信する
+				await self.voice_channel.send(
+					embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁"),
+					view=QuizReplayButtonView(self.query, q_count),  # 再度プレイボタン
+				)
+			except Exception:
+				logger.error("- 終了メッセージ送信/ランキング生成エラー")
+				logger.error(traceback.format_exc())
 
 			logger.debug("クイズ終了")
 			# 終了
@@ -880,10 +1045,10 @@ class QuizSessionManager:
 
 	sessions: dict[int, QuizSession] = field(default_factory=dict)
 
-	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player) -> QuizSession:
+	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player, query: str) -> QuizSession:
 		"""セッションを新規作成する"""
 		logger.debug(f"セッション新規作成: {guild_id}/{channel_id}")
-		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player)
+		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player, query)
 		return self.sessions[guild_id]
 
 	def delete_session(self, guild_id: int) -> None:
@@ -919,6 +1084,154 @@ class QuizSessionManager:
 quiz_session_manager = QuizSessionManager()
 
 
+async def prepare_play(
+	inter: discord.Interaction,
+	user: discord.Member,
+	guild: discord.Guild,
+	query: str = "",
+	preset: str | None = None,
+	q_count: int = 10,
+) -> None:
+	"""クイズを開始する"""
+	session = None
+	try:
+		# プレイリストのURLとプリセットどちらも指定されていない場合はエラーメッセージを返す
+		if query == "" and preset is None:
+			await inter.respond(embed=EmbedsTemplates.error(description=t("cmd.play.no_query")), ephemeral=True)
+			return
+
+		if isinstance(inter, discord.Message):
+			msg = inter
+		else:
+			# 準備中メッセージを送信
+			_inter = await inter.response.send_message(
+				embed=EmbedsTemplates.info(title=t("cmd.play.preparing.title"), description=t("cmd.play.preparing.description"), icon="🔳"),
+				ephemeral=True,
+			)
+			msg = await _inter.original_message()
+
+		if msg is None:
+			return
+
+		# ユーザーがボイスチャンネルに接続しているかチェック
+		if user.voice is None:
+			# ボイスチャンネルに参加していない場合はエラー
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
+			return
+		if not isinstance(user.voice.channel, discord.VoiceChannel):
+			# 参加しているチャンネルがボイスチャンネルではない場合はエラー
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
+			return
+
+		voice_channel: discord.VoiceChannel = user.voice.channel
+
+		# サーバー内で既にクイズが開始されているかチェック
+		session = quiz_session_manager.get_session(guild.id)
+		if session:
+			await msg.edit(
+				embed=EmbedsTemplates.error(description=t("cmd.start.already_started", guild.get_channel(session.channel_id).mention))
+			)
+			return
+
+		# VCへ接続
+		if voice_channel.guild.voice_client is not None:
+			# 既に接続している場合は一度切断する
+			await voice_channel.guild.voice_client.disconnect()
+			await asyncio.sleep(2)
+		player = await voice_channel.connect(cls=mafic.Player)
+
+		# 検索タイプ
+		search_type = mafic.SearchType.YOUTUBE_MUSIC
+		# search_type = mafic.SearchType[search_type]
+
+		# プレイリストを検索
+		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
+		# プリセットが指定されている場合はプリセットのプレイリストを取得する
+		if preset:
+			logger.debug(f"- プリセット指定: {preset}")
+			query = preset
+		try:
+			tracks = await player.fetch_tracks(query, search_type)
+		except Exception:
+			if voice_channel.guild.voice_client:
+				# 切断する
+				await voice_channel.guild.voice_client.disconnect()
+			await msg.edit(
+				embed=EmbedsTemplates.internal_error(
+					description=t("cmd.play.tracks_fetch_error"),
+					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+				)
+			)
+			return
+
+		# プレイリスト (楽曲) が見つからない場合
+		if not tracks:
+			if voice_channel.guild.voice_client:
+				# 切断する
+				await voice_channel.guild.voice_client.disconnect()
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+			return
+		# 指定されたクエリーがプレイリストではない場合
+		if isinstance(tracks, list):
+			if voice_channel.guild.voice_client:
+				# 切断する
+				await voice_channel.guild.voice_client.disconnect()
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
+			return
+
+		# クイズセッションを新規作成
+		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query)
+		bot_id = client.user.id if client.user else 0
+		# VCに参加しているユーザーをプレイヤーとして追加する
+		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
+			# 自分自身は除外
+			_m = await guild.get_or_fetch(discord.Member, u)
+			if u == bot_id:
+				continue
+			# ボットは除外
+			if _m is not None and _m.bot:
+				continue
+			# クイズにユーザーを追加
+			await session.add_player(u)
+
+		# クイズ準備完了メッセージ送信
+		await msg.edit(
+			embed=EmbedsTemplates.info(
+				title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"), icon="☑️"
+			)
+		)
+		# クイズ開始
+		play_result = await session.play(tracks, q_count, user.id)
+
+		# 内部エラー
+		if isinstance(play_result, str):
+			await msg.edit(embed=EmbedsTemplates.internal_error(error_code=play_result))
+
+		# クイズセッションを終了する
+		await quiz_session_manager.end_session(session.guild_id)
+
+		# ボイスチャンネルから切断できていない場合は念の為切断する
+		if voice_channel is not None and voice_channel.guild.voice_client is not None:
+			await voice_channel.guild.voice_client.disconnect()
+
+	except Exception:
+		try:
+			# クイズセッションを終了する
+			if session is not None:
+				await quiz_session_manager.end_session(session.guild_id)
+		except Exception:
+			logger.error("クイズ実行エラー - クイズ終了失敗")
+			logger.error(traceback.format_exc())
+		err_code = await DebugLogger.report_internal_error("クイズ実行エラー\n\n" + traceback.format_exc())
+		try:
+			if inter.channel is not None and not isinstance(
+				inter.channel, (discord.CategoryChannel, discord.ForumChannel, discord.MediaChannel)
+			):
+				await inter.channel.send(embed=EmbedsTemplates.internal_error(error_code=err_code))
+		except Exception:
+			logger.exception("Internal Error Message Send Failed")
+
+
 # ボイスチャンネルステータス変更時 (参加/退出等) イベント
 @client.listen()
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
@@ -934,8 +1247,13 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 			return
 		# 参加待ちの列へ追加する
 		await session.add_queue(member.id)
+
 	# クイズが行われているボイスチャンネルから退出した
 	elif before.channel is not None and after.channel is None and before.channel.id == session.channel_id:
+		# 自分が退出した場合はクイズを終了する
+		if member.id == client.user.id:
+			await quiz_session_manager.end_session(member.guild.id)
+			return
 		# プレイヤーを削除する 場合によってはクイズ終了
 		await session.remove_player(member.id)
 		await session.remove_queue(member.id)
