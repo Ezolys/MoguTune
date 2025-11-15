@@ -52,6 +52,7 @@
 		"view.q.next_q_button.label": "次の問題へ",
 		"view.q.next_q_button.do_not_have_permission": "あなたはこのクイズの主催者ではないため、次の問題に進めることはできません！",
 		"view.q.next_q_button.session_not_found": "対象のクイズセッションは既に終了しています。",
+		"view.q.replay_button.label": "同じ設定で再度プレイ",
 		"msg.q.init.title": "クイズ開始",
 		"msg.q.init.description": "- プレイリスト: {0}\n- 問題数: `{1}`\n- プレイヤー\n{2}",
 		"msg.q.init.must_be_at_least_two_songs": "楽曲数は2曲以上である必要があります！\n(重複した楽曲がプレイリストに含まれている場合は除外されます)",

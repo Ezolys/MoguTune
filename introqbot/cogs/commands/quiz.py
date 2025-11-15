@@ -10,7 +10,7 @@ from pycord.localizer import t
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
 from introqbot.presets import PlaylistPresets
-from introqbot.quiz_session import quiz_session_manager
+from introqbot.quiz_session import prepare_play, quiz_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -45,119 +45,23 @@ class QuizCommands(discord.Cog):
 	) -> None:
 		if ctx.guild is None:
 			logger.error("Guild is None")
-			raise Exception("Guild is None")
-
-		# プレイリストのURLとプリセットどちらも指定されていない場合はエラーメッセージを返す
-		if query == "" and preset is None:
-			await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.play.no_query")), ephemeral=True)
-			return
-
-		# 準備中メッセージを送信
-		msg = await ctx.respond(
-			embed=EmbedsTemplates.info(title=t("cmd.play.preparing.title"), description=t("cmd.play.preparing.description"), icon="🔳"),
-			ephemeral=True,
-		)
-
-		# ユーザーがボイスチャンネルに接続しているかチェック
-		if ctx.user.voice is None:
-			# ボイスチャンネルに参加していない場合はエラー
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
-			return
-		if not isinstance(ctx.user.voice.channel, discord.VoiceChannel):
-			# 参加しているチャンネルがボイスチャンネルではない場合はエラー
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
-			return
-
-		voice_channel: discord.VoiceChannel = ctx.user.voice.channel
-
-		# サーバー内で既にクイズが開始されているかチェック
-		session = quiz_session_manager.get_session(ctx.guild.id)
-		if session:
-			await msg.edit(
-				embed=EmbedsTemplates.error(description=t("cmd.start.already_started", ctx.guild.get_channel(session.channel_id).mention))
+			await ctx.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error("QuizCommands.play - ctx.guild is None")
+				)
 			)
 			return
-
-		# VCへ接続
-		if voice_channel.guild.voice_client:
-			# 既に接続している場合は一度切断する
-			await voice_channel.guild.voice_client.disconnect()
-			await asyncio.sleep(2)
-		player = await voice_channel.connect(cls=mafic.Player)
-
-		# 検索タイプ
-		search_type = mafic.SearchType.YOUTUBE_MUSIC
-		# search_type = mafic.SearchType[search_type]
-
-		# プレイリストを検索
-		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
-		# プリセットが指定されている場合はプリセットのプレイリストを取得する
-		if preset:
-			logger.debug(f"- プリセット指定: {preset}")
-			query = preset
-		try:
-			tracks = await player.fetch_tracks(query, search_type)
-		except Exception:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(
+		if ctx.channel is None:
+			logger.error("Channel is None")
+			await ctx.respond(
 				embed=EmbedsTemplates.internal_error(
-					description=t("cmd.play.tracks_fetch_error"),
-					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+					error_code=await DebugLogger.report_internal_error("QuizCommands.play - ctx.channel is None")
 				)
 			)
 			return
 
-		# プレイリスト (楽曲) が見つからない場合
-		if not tracks:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
-			return
-		# 指定されたクエリーがプレイリストではない場合
-		if isinstance(tracks, list):
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
-			return
-
-		# クイズセッションを新規作成
-		session = quiz_session_manager.create_session(ctx.guild.id, voice_channel.id, player)
-		bot_id = self.bot.user.id if self.bot.user else 0
-		# VCに参加しているユーザーをプレイヤーとして追加する
-		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
-			# 自分自身は除外
-			_m = await ctx.guild.get_or_fetch(discord.Member, u)
-			if u == bot_id:
-				continue
-			# ボットは除外
-			if _m is not None and _m.bot:
-				continue
-			# クイズにユーザーを追加
-			await session.add_player(u)
-
-		# クイズ準備完了メッセージ送信
-		await msg.edit(
-			embed=EmbedsTemplates.info(
-				title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"), icon="☑️"
-			)
-		)
-		# クイズ開始
-		play_result = await session.play(tracks, q_count, ctx.user.id)
-
-		# 内部エラー
-		if isinstance(play_result, str):
-			await msg.edit(embed=EmbedsTemplates.internal_error(error_code=play_result))
-
-		# クイズセッションを削除する
-		quiz_session_manager.delete_session(session.guild_id)
-
-		# ボイスチャンネルから切断できていない場合は念の為切断する
-		if voice_channel is not None and voice_channel.guild.voice_client is not None:
-			await voice_channel.guild.voice_client.disconnect()
+		# クイズを開始
+		await prepare_play(ctx.interaction, ctx.user, ctx.guild, query, preset, q_count)
 
 	@commands.slash_command()
 	@discord.guild_only()
