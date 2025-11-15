@@ -70,9 +70,14 @@ class QuizNextQButtonView(discord.ui.View):
 			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
 			return
 
-		self.next_q_button = discord.ui.Button(
-			style=discord.ButtonStyle.primary, label=t("view.q.next_q_button.label"), emoji="⏭️", disabled=disabled
+		# 次の問題があるかどうかに応じてラベルと絵文字を設定
+		label, emoji = (
+			(t("view.q.next_q_button.label.next"), "⏭️")
+			if not self.session.current_q_number >= self.session.q_tracks_count
+			else (t("view.q.next_q_button.label.end"), "🏁")
 		)
+
+		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=label, emoji=emoji, disabled=disabled)
 		self.next_q_button.callback = self.next_q_button_callback
 		self.add_item(self.next_q_button)
 
@@ -500,6 +505,8 @@ class QuizSession:
 	"""問題の元のトラック一覧"""
 	q_tracks: list[mafic.Track] | None = None
 	"""問題のトラック一覧"""
+	q_tracks_count: int = 0
+	"""問題のトラック数"""
 
 	next_cleanup_messages: list[discord.Message | discord.WebhookMessage] = field(default_factory=list)
 	"""次の問題開始時に削除するメッセージのリスト"""
@@ -623,6 +630,7 @@ class QuizSession:
 		# 各変数をリセット
 		self.q_original_tracks = []
 		self.q_tracks = []
+		self.q_tracks_count = 0
 		self.current_q_number = 0
 		self.q_start_time = None
 		self.answering_player = None
@@ -673,6 +681,7 @@ class QuizSession:
 
 			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
 			self.q_tracks = random.sample(tracks.tracks, len(tracks.tracks))[:q_count]
+			self.q_tracks_count = q_count
 
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < 2:
@@ -726,7 +735,7 @@ class QuizSession:
 
 				logger.debug(f"{i}問目")
 
-				self.q_number = i
+				self.current_q_number = i
 
 				# 参加待ちのプレイヤーを参加させる
 				await self.join_queued_players()
