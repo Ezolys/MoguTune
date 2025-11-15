@@ -34,9 +34,15 @@
 		"view.q.join.msg.voice_channel_not_connected": "クイズセッションが開始されているボイスチャンネルへ接続してから参加してください。",
 		"view.q.answer_button.label": "解答",
 		"view.q.answer_button.not_joined": "あなたはこのクイズに参加していないため、解答できません！",
-		"view.q.answer_button.cannot_answered": "この問題には解答できません！",
+		"view.q.answer_button.cannot_answered": "現在は解答できません！",
 		"view.q.answer_button.session_not_found": "対象のクイズセッションは既に終了しています。",
 		"view.q.answer_button.miss": "お手つき中です！\n次のプレイヤーが解答するまで解答できません！",
+		"view.q.skip_button.label": "問題をスキップ",
+		"view.q.skip_button.not_joined": "あなたはこのクイズに参加していないため、スキップできません！",
+		"view.q.skip_button.cannot_skipped": "現在はスキップできません！",
+		"view.q.skip_button.session_not_found": "対象のクイズセッションは既に終了しています。",
+		"view.q.skip_button.do_not_have_permission": "あなたはこのクイズの主催者ではないため、次の問題に進めることはできません！",
+		"view.q.skip_button.not_playing": "楽曲が再生されていません！",
 		"view.q.answer_select.correct.title": "正解！",
 		"view.q.answer_select.correct.description": "解答者: {0}\n\n☑️ 答え: **{1}**\n\n**[🎧 聴く]({2})**",
 		"view.q.answer_select.incorrect.title": "不正解...",
@@ -63,7 +69,9 @@
 		"msg.q.end.description": "＜結果＞\n{0}",
 		"msg.q.end.no_players": "プレイヤーがいません... 🥲",
 		"msg.q.answer.title": "解答",
-		"msg.q.answer.description": "解答してください！"
+		"msg.q.answer.description": "解答してください！",
+		"msg.q.skip.title": "スキップ",
+		"msg.q.skip.description": "問題をスキップしました。\n\n☑️ 答え: **{0}**\n\n**[🎧 聴く]({1})**"
 	},
 	"commands": {
 		"ping": {
