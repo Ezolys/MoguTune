@@ -34,6 +34,13 @@
 			"title_en-GB": "Anison! -Anime Songs-",
 			"description_ja": "今もっともアツい日本のアニメソング（アニソン）を一つのプレイリストに。",
 			"description_en-GB": "The hottest and latest anime tracks."
+		},
+		"https://music.youtube.com/playlist?list=PLY65c5UdHZ1Zn-IY3iS1KkDDqOGEo-9Ow": {
+			"platform": "YouTube Music",
+			"title_ja": "ポリスピカデリー - ボカロ",
+			"title_en-GB": "Police Piccadilly - Vocaloid",
+			"description_ja": "",
+			"description_en-GB": ""
 		}
 	}
 }
