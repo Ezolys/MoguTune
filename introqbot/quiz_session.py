@@ -39,6 +39,16 @@ class QuizNextQButtonView(discord.ui.View):
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
 		# セッションを取得し直す
 		self.session = quiz_session_manager.get_session(self.session_id)
 
@@ -116,6 +126,16 @@ class QuizAnswerSelectView(discord.ui.View):
 	# 解答選択肢
 	async def answer_select_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答選択肢クリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		# セッションを取得し直す
 		self.session = quiz_session_manager.get_session(self.session_id)
@@ -222,6 +242,16 @@ class QuizAnswerButtonView(discord.ui.View):
 	# 解答ボタン
 	async def answer_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"解答ボタンクリック: {self.session_id}")
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
 
 		await interaction.response.defer()
 
