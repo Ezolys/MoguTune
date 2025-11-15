@@ -237,8 +237,8 @@ class QuizAnswerSelectView(discord.ui.View):
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
-				elif _position > 0:
-					_position -= 3000  # 3秒前
+				# elif _position > 0:
+				# 	_position -= 3000  # 3秒前
 				await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
 
 			# 次の問題へボタンを有効化
