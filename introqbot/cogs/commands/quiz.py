@@ -1,15 +1,13 @@
-import asyncio
 import logging
-import traceback
+from typing import get_args
 
 import discord
-import mafic
 from discord.ext import commands
-from pycord.localizer import t
+from pycord.localizer import Locale, t
 
+from introqbot.db import DBManager
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
-from introqbot.presets import PlaylistPresets
 from introqbot.quiz_session import prepare_play, quiz_session_manager
 
 logger = logging.getLogger(__name__)
@@ -18,6 +16,41 @@ logger = logging.getLogger(__name__)
 class QuizCommands(discord.Cog):
 	def __init__(self, bot: discord.Bot) -> None:
 		self.bot = bot
+
+	preset_list: list
+	preset_choices: dict[str, list[discord.OptionChoice]]
+
+	async def load_presets(self) -> None:
+		logger.info("プレイリストプリセットを読み込み")
+
+		# データーベースから最新のプリセットを取得して整形する
+		presets = await DBManager.col_presets.find().to_list(length=100)
+		self.preset_list = presets
+
+		# 各言語の OptionChoice のリストを作成
+		self.preset_choices = {}
+		for lang_code in get_args(Locale):
+			self.preset_choices[lang_code] = []
+			for info in self.preset_list:
+				title = ""
+				desc = ""
+				title_desc = ""
+				if info.get("title_" + lang_code) is not None and info.get("description_" + lang_code) is not None:
+					title = info.get("title_" + lang_code)
+					desc = info.get("description_" + lang_code)
+				else:
+					title = info.get("title_" + "en-GB")
+					desc = info.get("description_" + "en-GB")
+				# 説明文が設定されていない場合はセパレーターを除いてタイトルのみにする
+				title_desc = f"{title} | {desc}" if desc != "" and desc is not None else title
+				# URL が設定されている場合のみ一覧へ追加する
+				if "url" in info and info.get("url") is not None:
+					self.preset_choices[lang_code].append(discord.OptionChoice(name=title_desc, value=info.get("url")))
+
+	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
+		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""
+		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
+		return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
 
 	@commands.slash_command()
 	@discord.guild_only()
@@ -28,9 +61,9 @@ class QuizCommands(discord.Cog):
 		ctx: discord.ApplicationContext,
 		query: discord.Option(str, required=False, default=""),  # pyright: ignore[reportInvalidTypeForm]
 		preset: discord.Option(
-			input_type=str,
+			str,
 			required=False,
-			choices=PlaylistPresets.get_presets(),
+			autocomplete=get_presets,
 		),  # pyright: ignore[reportInvalidTypeForm]
 		# search_type: discord.Option(
 		# 	input_type=str,

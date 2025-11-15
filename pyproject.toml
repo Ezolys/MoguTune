@@ -9,6 +9,7 @@ dependencies = [
     "mafic>=2.10.1",
     "py-cord[speed,voice]>=2.7.0rc2",
     "pycord-localizer>=0.1.3",
+    "pymongo>=4.15.4",
     "uuid-utils>=0.11.1",
 ]
 

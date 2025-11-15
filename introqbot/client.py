@@ -8,12 +8,12 @@ from discord.ext import commands, tasks
 from pycord.localizer import t
 
 from introqbot.app import App
+from introqbot.db import DBManager
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
 from introqbot.kumasan import KumaSan
 from introqbot.localizations import Localization
 from introqbot.logger import setup_logging
-from introqbot.presets import PlaylistPresets
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -62,6 +62,12 @@ i18n = Localization(client)
 @tasks.loop(minutes=1)
 async def send_heartbeat() -> None:
 	await KumaSan.ping()
+
+
+# 1時間に1回プリセットを更新する
+@tasks.loop(hours=1)
+async def update_presets() -> None:
+	await client.get_cog("QuizCommands").load_presets()
 
 
 # アプリケーションコマンド実行時のイベント
@@ -130,6 +136,9 @@ async def on_application_command_error(
 # 準備完了時
 @client.listen()
 async def on_ready() -> None:
+	# DBへ接続
+	await DBManager.connect()
+
 	# 内部エラー報告機能の初期化
 	try:
 		logger.info("デバッグ用サーバー/チャンネル取得")
@@ -158,6 +167,9 @@ async def on_ready() -> None:
 
 	logger.info(f"ログイン完了: {client.user} ({client.latency * 1000} ms)")
 
+	# プリセットの定期更新開始
+	update_presets.start()
+
 	# 生存確認ループ開始
 	send_heartbeat.start()
 
@@ -165,8 +177,6 @@ async def on_ready() -> None:
 def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
-	# プレイリストのプリセットを読み込む
-	PlaylistPresets.load()
 	# Cogs の読み込み
 	client.load_extensions("introqbot.cogs.commands")
 	# コマンドのローカライズ
