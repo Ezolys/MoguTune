@@ -18,48 +18,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class QuizJoinView(discord.ui.View):
-	session_id: int
-
-	def __init__(self, session_id: int, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
-		self.session_id = session_id
-
-	@discord.ui.button(emoji="arrow_right")
-	async def button_callback(self, button: discord.Button, interaction: discord.Interaction) -> None:
-		logger.debug(f"参加ボタンクリック: {self.session_id}")
-
-		# セッションを取得する
-		session = quiz_session_manager.get_session(self.session_id)
-
-		# セッションが存在するかチェック
-		if session is None:
-			await interaction.respond(embed=EmbedsTemplates.error(description=t("view.q.join.msg.session_not_found")), ephemeral=True)
-			return
-
-		# 既にクイズに参加しているかどうかチェック
-		if session.is_player_joined(interaction.user.id):
-			await interaction.respond(embed=EmbedsTemplates.warning(description=t("view.q.join.msg.already_joined")), ephemeral=True)
-			return
-
-		# クイズが行われているボイスチャンネルにユーザーが接続しているかチェック
-		if interaction.user.voice is None:
-			await interaction.respond(
-				embed=EmbedsTemplates.warning(description=t("view.q.join.msg.voice_channel_not_connected")), ephemeral=True
-			)
-			return
-		if interaction.user.voice.channel.id != session.channel_id:
-			await interaction.respond(
-				embed=EmbedsTemplates.warning(description=t("view.q.join.msg.voice_channel_not_connected")), ephemeral=True
-			)
-			return
-
-		# セッションにボタンをクリックしたユーザーを追加する
-		await session.join_player(interaction.user.id)
-
-		await interaction.respond(embed=EmbedsTemplates.success(description=t("view.q.join.msg.joined")), ephemeral=True)
-
-
 class QuizNextQButtonView(discord.ui.View):
 	def __init__(self, session_id: int, disabled: bool = False, *args, **kwargs) -> None:
 		super().__init__(timeout=None, *args, **kwargs)
