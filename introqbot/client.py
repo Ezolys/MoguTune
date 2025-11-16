@@ -102,6 +102,9 @@ async def on_application_command_error(
 	ctx: discord.ApplicationContext,
 	ex: discord.DiscordException,
 ) -> None:
+	if i18n.i18n:
+		await i18n.i18n.set_current_locale(ctx)
+
 	cmd_name = "!Unknown!"
 	if ctx.command is not None:
 		cmd_name = ctx.command.qualified_name
@@ -115,6 +118,9 @@ async def on_application_command_error(
 			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning", int(ex.retry_after))),
 			ephemeral=True,
 		)
+	# 実行者がオーナーではない
+	elif isinstance(ex, commands.NotOwner):
+		await ctx.respond(embed=EmbedsTemplates.error(description=t("cmdmsg.not_owner")), ephemeral=True)
 	# その他
 	else:
 		# 内部エラーを報告してメッセージを送信する

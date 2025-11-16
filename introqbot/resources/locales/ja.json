@@ -9,6 +9,7 @@
 		"embed.internal_error.title": "内部エラー",
 		"embed.internal_error.description": "内部エラーが発生しました。もう一度お試しください。\n(この問題が解決しない場合は、開発者へ報告してください。)",
 		"cmdmsg.cooldown_warning": "コマンドを実行する間隔が短すぎます。\n{0} 秒後に再度お試しください。",
+		"cmdmsg.not_owner": "あなたにはこのコマンドを実行する権限がありません。",
 		"cmd.ping.result": "Pong! (`{0}` ms)",
 		"cmd.start.not_specified_voice_channel": "ボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
 		"cmd.start.already_started": "このサーバーでは {0} で既にクイズが開始されています。",
