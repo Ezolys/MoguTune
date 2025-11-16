@@ -18,7 +18,7 @@ class YTMostReplayedAPI:
 		logger.debug("YTMostReplayedAPI 情報取得")
 		try:
 			res = await cls.cl.get(
-				cls._API_URL + "heatmap",
+				cls._API_URL + "chorus",
 				params={"url": youtube_url},
 				headers={"Secret": getenv("YTMRAPI_SECRET", "")},
 				timeout=30,
@@ -26,9 +26,9 @@ class YTMostReplayedAPI:
 			if res.status_code == 200:
 				d = res.json()
 				if d.get("data") is not None:
-					h = d.get("data")
-					if h is not None:
-						return h["start_time"] * 1000
+					start_time = d["data"].get("start_time")
+					if start_time is not None:
+						return int(start_time * 1000)
 		except Exception:
 			logger.error("YTMostReplayedAPI 情報取得失敗")
 			logger.error(traceback.format_exc())

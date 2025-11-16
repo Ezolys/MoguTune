@@ -177,7 +177,8 @@ async def on_ready() -> None:
 	update_presets.start()
 
 	# 生存確認ループ開始
-	send_heartbeat.start()
+	if getenv("UPTIME_KUMA_PUSH_URL", "") != "":
+		send_heartbeat.start()
 
 
 def run() -> None:
