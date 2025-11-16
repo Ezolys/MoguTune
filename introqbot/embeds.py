@@ -33,7 +33,7 @@ class EmbedsTemplates:
 		return discord.Embed(
 			title=icon + " " + title,
 			description=description,
-			colour=discord.Colour.from_rgb(228, 146, 16),
+			colour=discord.Colour.from_rgb(255, 204, 77),
 		)
 
 	@classmethod
@@ -45,7 +45,7 @@ class EmbedsTemplates:
 		return discord.Embed(
 			title=icon + " " + title,
 			description=description,
-			colour=discord.Colour.from_rgb(247, 206, 80),
+			colour=discord.Colour.from_rgb(221, 46, 68),
 		)
 
 	@classmethod
@@ -54,7 +54,7 @@ class EmbedsTemplates:
 		embed = discord.Embed(
 			title=":closed_book: " + t("embed.internal_error.title"),
 			description=description if description else t("embed.internal_error.description"),
-			colour=discord.Colour.from_rgb(205, 61, 66),
+			colour=discord.Colour.from_rgb(221, 46, 68),
 		)
 		# エラーコードが渡された場合は先頭に挿入する
 		if error_code:
