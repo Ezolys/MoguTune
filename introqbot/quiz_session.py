@@ -516,6 +516,15 @@ class QuizSession:
 
 	NEXT: asyncio.Event = field(default_factory=asyncio.Event)
 	ANSWERED: asyncio.Event = field(default_factory=asyncio.Event)
+	SFX_FINISHED: asyncio.Event = field(default_factory=asyncio.Event)
+	"""SFX再生完了イベント"""
+
+	is_playing_sfx: bool = False
+	"""SFXを再生しているかどうか"""
+	original_track_before_sfx: mafic.Track | None = None
+	"""SFX再生前のトラック"""
+	original_position_before_sfx: int = 0
+	"""SFX再生前の再生位置"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -635,6 +644,58 @@ class QuizSession:
 		self.q_start_time = None
 		self.answering_player = None
 		self.owner = None
+
+	async def play_sfx(self, sfx_query: str) -> None:
+		"""SFXを再生する
+
+		再生中の楽曲を一時停止し、SFXを再生したあと、元の楽曲の再生を再開する
+		"""
+		if self.is_playing_sfx:
+			logger.warning("SFX再生中止 - 既に別のSFXを再生中です")
+			return
+
+		# 解答可能かどうかを記憶
+		before_can_answered = self.can_answered
+		# 解答できない状態にする
+		self.can_answered = False
+
+		try:
+			self.is_playing_sfx = True
+			self.SFX_FINISHED.clear()
+
+			# 元のトラックと再生位置を保存
+			self.original_track_before_sfx = self.pl.current
+			if self.original_track_before_sfx:
+				self.original_position_before_sfx = self.pl.position
+			else:
+				self.original_position_before_sfx = 0
+
+			# 再生を一時停止
+			await self.pl.pause()
+
+			# SFXを検索して再生
+			search_type: str | mafic.SearchType
+			if sfx_query.startswith(("http://", "https://")):
+				search_type = mafic.SearchType.YOUTUBE
+			else:
+				sfx_query = "file:///" + sfx_query
+			sfx_tracks = await self.pl.fetch_tracks(sfx_query)
+			if not sfx_tracks or not isinstance(sfx_tracks, list):
+				raise Exception("SFX track not found or is a playlist.")
+
+			await self.pl.play(sfx_tracks[0], volume=self.PL_VOLUME)
+
+			# SFXの再生終了を待つ
+			await self.SFX_FINISHED.wait()
+
+		except Exception:
+			logger.error("SFXの再生に失敗しました。")
+			logger.error(traceback.format_exc())
+		finally:
+			self.is_playing_sfx = False
+			# SFX再生前が解答できるじょうたいだった場合は解答できる状態に戻す
+			if before_can_answered:
+				self.can_answered = True
 
 	async def end(self) -> None:
 		"""クイズを終了する"""
@@ -760,6 +821,10 @@ class QuizSession:
 				# タイトルを更新
 				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
 				await q_msg.edit(embed=q_msg.embeds[0])
+
+				# SFX
+				# await self.play_sfx("https://www.youtube.com/watch?v=7myNqqhg7aw")
+				await self.play_sfx(r"D:\Downloads\Lavalink\sfx\q.mp3")
 
 				# 問題開始時刻を更新
 				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)
@@ -1276,5 +1341,21 @@ async def on_track_end(event: mafic.TrackEndEvent):
 	session = quiz_session_manager.get_session(guild_id)
 	if session is None:
 		return
-	# 次の問題へ進む
+
+	# SFXの再生が終了した場合
+	if session.is_playing_sfx:
+		logger.debug(f"SFX再生終了イベント: {guild_id}")
+		# 元の楽曲の再生を再開
+		if session.original_track_before_sfx:
+			await session.pl.play(
+				session.original_track_before_sfx,
+				start_time=session.original_position_before_sfx,
+				volume=session.PL_VOLUME,
+			)
+			await session.pl.resume()  # 再開
+		session.SFX_FINISHED.set()
+		return
+
+	# クイズの楽曲が終了した場合、次の問題へ進む
+	# if event.reason == mafic.EndReason.FINISHED:
 	session.NEXT.set()
