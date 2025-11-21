@@ -4,6 +4,7 @@ import logging
 import random
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import discord
 import mafic
@@ -135,6 +136,7 @@ class QuizNextQButtonView(discord.ui.View):
 			pass
 		# 再生停止 (=次の問題へ)
 		await self.session.pl.stop()
+		self.session.NEXT.set()
 
 
 class QuizAnswerSelectView(discord.ui.View):
@@ -226,6 +228,9 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=2,
 			)
+			# SFX
+			await self.session.play_sfx(r"D:\Downloads\Lavalink\sfx\incorrect.mp3")
+			await asyncio.sleep(1)
 		# 正解
 		else:
 			# タイトルを生成
@@ -249,19 +254,23 @@ class QuizAnswerSelectView(discord.ui.View):
 			)
 			# 削除対象メッセージに追加
 			self.session.next_cleanup_messages.append(await _.original_message())
+			# SFX
+			await self.session.play_sfx(r"D:\Downloads\Lavalink\sfx\correct.mp3", restore=False)
+			await asyncio.sleep(1)
 
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
-			if self.session.pl.current is not None and self.session.pl.current.uri is not None:
-				logger.debug("- 正解後再生開始")
-				if self.session.pl.current.source == "youtube":
-					_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
-					logger.info(f"Play Position: {_position}")
-					if _position is None:
-						_position = 0
-				else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
+			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
+			logger.debug("- 正解後再生開始")
+			if _track.source == "youtube":
+				_position = await YTMostReplayedAPI.get_chorus_info(_track.uri)
+				logger.info(f"Play Position: {_position}")
+				if _position is None:
 					_position = 0
-				await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
+			else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
+				_position = 0
+			logger.debug(f"Resuming track: {_track.uri} at {_position}")
+			await self.session.pl.play(_track, start_time=_position, volume=self.session.PL_VOLUME)
 
 			# 次の問題へボタンを有効化
 			next_q_button.enable_all_items()
@@ -427,7 +436,8 @@ class QuizAnswerButtonView(discord.ui.View):
 					_position = 0
 			else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
 				_position = 0
-			await self.session.pl.update(position=_position, end_time=None, volume=self.session.PL_VOLUME, pause=False)
+			logger.debug(f"Resuming track (Skip): {pl_current.uri} at {_position}")
+			await self.session.pl.play(pl_current, start_time=_position, volume=self.session.PL_VOLUME)
 
 		# 次の問題へボタンを有効化
 		next_q_button.enable_all_items()
@@ -479,7 +489,10 @@ class QuizSession:
 	"""プレイリストのURL"""
 
 	PL_VOLUME: int = 10
-	"""プレイヤーのボリューム"""
+	"""プレイヤーで再生する音楽の音量"""
+
+	PL_SFX_VOLUME: int = 15
+	"""プレイヤーで再生するSFXの音量"""
 
 	players: list[QuizPlayer] = field(default_factory=list)
 	"""参加するプレイヤーの一覧"""
@@ -525,6 +538,8 @@ class QuizSession:
 	"""SFX再生前のトラック"""
 	original_position_before_sfx: int = 0
 	"""SFX再生前の再生位置"""
+	was_playing_before_sfx: bool = False
+	"""SFX再生前に再生中だったかどうか"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -645,7 +660,7 @@ class QuizSession:
 		self.answering_player = None
 		self.owner = None
 
-	async def play_sfx(self, sfx_query: str) -> None:
+	async def play_sfx(self, sfx_query: str, restore: bool = True) -> None:
 		"""SFXを再生する
 
 		再生中の楽曲を一時停止し、SFXを再生したあと、元の楽曲の再生を再開する
@@ -667,23 +682,29 @@ class QuizSession:
 			self.original_track_before_sfx = self.pl.current
 			if self.original_track_before_sfx:
 				self.original_position_before_sfx = self.pl.position
+				# 再生中だったかどうかを保存 (paused が False かつ current がある場合)
+				self.was_playing_before_sfx = not self.pl.paused
 			else:
 				self.original_position_before_sfx = 0
+				self.was_playing_before_sfx = False
 
 			# 再生を一時停止
 			await self.pl.pause()
 
 			# SFXを検索して再生
-			search_type: str | mafic.SearchType
+			track: mafic.Track | str | None = None
+			# URL
 			if sfx_query.startswith(("http://", "https://")):
-				search_type = mafic.SearchType.YOUTUBE
+				sfx_tracks = await self.pl.fetch_tracks(sfx_query)
+				if not sfx_tracks or not isinstance(sfx_tracks, list):
+					raise Exception("SFX track not found or is a playlist.")
+				track = sfx_tracks[0]
+			# Local
 			else:
-				sfx_query = "file:///" + sfx_query
-			sfx_tracks = await self.pl.fetch_tracks(sfx_query)
-			if not sfx_tracks or not isinstance(sfx_tracks, list):
-				raise Exception("SFX track not found or is a playlist.")
+				track = sfx_query
 
-			await self.pl.play(sfx_tracks[0], volume=self.PL_VOLUME)
+			# SFXを再生
+			await self.pl.play(track, volume=self.PL_SFX_VOLUME)
 
 			# SFXの再生終了を待つ
 			await self.SFX_FINISHED.wait()
@@ -691,10 +712,22 @@ class QuizSession:
 		except Exception:
 			logger.error("SFXの再生に失敗しました。")
 			logger.error(traceback.format_exc())
+			# エラーが発生した場合は元の楽曲の再生を再開する
+			if restore and self.original_track_before_sfx:
+				try:
+					await self.pl.play(
+						self.original_track_before_sfx,
+						start_time=self.original_position_before_sfx,
+						volume=self.PL_VOLUME,
+					)
+				except Exception:
+					logger.error("元の楽曲の復帰に失敗しました。")
+					logger.error(traceback.format_exc())
+
 		finally:
 			self.is_playing_sfx = False
-			# SFX再生前が解答できるじょうたいだった場合は解答できる状態に戻す
-			if before_can_answered:
+			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
+			if restore and before_can_answered:
 				self.can_answered = True
 
 	async def end(self) -> None:
@@ -998,6 +1031,14 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
+		# SFX
+		await self.play_sfx(r"D:\Downloads\Lavalink\sfx\a.mp3")
+
+		# 一時停止する
+		self.ANSWERED.clear()
+		logger.debug("- 一時停止")
+		await self.pl.pause()
+
 		# 全プレイヤーに解答中メッセージを送信する
 		as_msg = None
 		if self.voice_channel is not None:
@@ -1012,11 +1053,6 @@ class QuizSession:
 					icon="💭",
 				)
 			)
-
-		# 一時停止する
-		self.ANSWERED.clear()
-		logger.debug("- 一時停止")
-		await self.pl.pause()
 
 		# 全プレイヤーの不正解フラグをリセット
 		self.refresh()
@@ -1337,7 +1373,7 @@ async def on_track_start(event: mafic.TrackEndEvent):
 async def on_track_end(event: mafic.TrackEndEvent):
 	assert isinstance(event.player, mafic.Player)
 	guild_id = event.player.guild.id
-	logger.debug(f"再生終了イベント: {guild_id}")
+	logger.debug(f"再生終了イベント: {guild_id} ({event.reason})")
 	session = quiz_session_manager.get_session(guild_id)
 	if session is None:
 		return
@@ -1347,15 +1383,32 @@ async def on_track_end(event: mafic.TrackEndEvent):
 		logger.debug(f"SFX再生終了イベント: {guild_id}")
 		# 元の楽曲の再生を再開
 		if session.original_track_before_sfx:
-			await session.pl.play(
-				session.original_track_before_sfx,
-				start_time=session.original_position_before_sfx,
-				volume=session.PL_VOLUME,
-			)
-			await session.pl.resume()  # 再開
+			try:
+				# REPLACED の場合は無視する
+				if event.reason == mafic.EndReason.REPLACED:
+					logger.debug("- REPLACEDのため無視")
+					return
+
+				# SFX再生前に再生中だった場合のみ再開する
+				# if session.was_playing_before_sfx:
+				await session.pl.play(
+					session.original_track_before_sfx,
+					start_time=session.original_position_before_sfx,
+					volume=session.PL_VOLUME,
+				)
+
+				# if not session.was_playing_before_sfx:
+				# 	await session.pl.pause()
+				# else:
+				# 	logger.debug("- SFX再生前に再生していなかったため復帰しません")
+				# await session.pl.resume()  # play() で再生されるはずなので不要
+			except Exception:
+				logger.error("SFX終了後の楽曲復帰に失敗しました")
+				logger.error(traceback.format_exc())
+
 		session.SFX_FINISHED.set()
 		return
 
 	# クイズの楽曲が終了した場合、次の問題へ進む
-	# if event.reason == mafic.EndReason.FINISHED:
-	session.NEXT.set()
+	if event.reason == mafic.EndReason.FINISHED:
+		session.NEXT.set()
