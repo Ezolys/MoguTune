@@ -14,6 +14,7 @@ from introqbot.chorus import YTMostReplayedAPI
 from introqbot.client import client
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.sfx import SFX
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -229,7 +230,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				delete_after=2,
 			)
 			# SFX
-			await self.session.play_sfx(r"D:\Downloads\Lavalink\sfx\incorrect.mp3")
+			await self.session.play_sfx(SFX.INCORRECT)
 			await asyncio.sleep(1)
 		# 正解
 		else:
@@ -255,7 +256,7 @@ class QuizAnswerSelectView(discord.ui.View):
 			# 削除対象メッセージに追加
 			self.session.next_cleanup_messages.append(await _.original_message())
 			# SFX
-			await self.session.play_sfx(r"D:\Downloads\Lavalink\sfx\correct.mp3", restore=False)
+			await self.session.play_sfx(SFX.CORRECT, restore=False)  # restore を False にして解答できないままにする
 			await asyncio.sleep(1)
 
 			# 答えの楽曲を再生する (終了時間を None にして最後まで再生する)
@@ -660,13 +661,17 @@ class QuizSession:
 		self.answering_player = None
 		self.owner = None
 
-	async def play_sfx(self, sfx_query: str, restore: bool = True) -> None:
+	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
 
 		再生中の楽曲を一時停止し、SFXを再生したあと、元の楽曲の再生を再開する
 		"""
 		if self.is_playing_sfx:
 			logger.warning("SFX再生中止 - 既に別のSFXを再生中です")
+			return
+
+		if isinstance(sfx_query, SFX) and sfx_query.value is None:
+			logger.warning(f"SFX再生中止 - SFX の URL またはファイルパスが設定されていません (SFX.{sfx_query.name})")
 			return
 
 		# 解答可能かどうかを記憶
@@ -694,14 +699,18 @@ class QuizSession:
 			# SFXを検索して再生
 			track: mafic.Track | str | None = None
 			# URL
-			if sfx_query.startswith(("http://", "https://")):
-				sfx_tracks = await self.pl.fetch_tracks(sfx_query)
-				if not sfx_tracks or not isinstance(sfx_tracks, list):
-					raise Exception("SFX track not found or is a playlist.")
-				track = sfx_tracks[0]
-			# Local
+			if isinstance(sfx_query, str):
+				if sfx_query.startswith(("http://", "https://")):
+					sfx_tracks = await self.pl.fetch_tracks(sfx_query)
+					if not sfx_tracks or not isinstance(sfx_tracks, list):
+						raise Exception("SFX track not found or is a playlist.")
+					track = sfx_tracks[0]
+				# ローカルファイルパス
+				else:
+					track = sfx_query
 			else:
-				track = sfx_query
+				# 環境変数で設定された値 (SFX Enum)
+				track = str(sfx_query.value)
 
 			# SFXを再生
 			await self.pl.play(track, volume=self.PL_SFX_VOLUME)
@@ -856,8 +865,7 @@ class QuizSession:
 				await q_msg.edit(embed=q_msg.embeds[0])
 
 				# SFX
-				# await self.play_sfx("https://www.youtube.com/watch?v=7myNqqhg7aw")
-				await self.play_sfx(r"D:\Downloads\Lavalink\sfx\q.mp3")
+				await self.play_sfx(SFX.Q)
 
 				# 問題開始時刻を更新
 				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)
@@ -1032,7 +1040,7 @@ class QuizSession:
 		# 	interaction.view.disable_all_items()
 
 		# SFX
-		await self.play_sfx(r"D:\Downloads\Lavalink\sfx\a.mp3")
+		await self.play_sfx(SFX.A)
 
 		# 一時停止する
 		self.ANSWERED.clear()
