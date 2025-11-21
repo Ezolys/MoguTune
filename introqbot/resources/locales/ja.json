@@ -91,11 +91,7 @@
 			"options": {
 				"query": {
 					"name": "query",
-					"description": "クイズに使用するプレイリストのURL (YouTube または Spotify)"
-				},
-				"preset": {
-					"name": "preset",
-					"description": "プレイリストのプリセット (これを指定した場合、query オプションは無視されます。)"
+					"description": "クイズに使用するプレイリストのURL (YouTube, Spotify, SoundCloud, niconico)"
 				},
 				"q_count": {
 					"name": "q_count",
@@ -105,7 +101,7 @@
 		},
 		"end": {
 			"name": "end",
-			"description": "実施中のクイズを強制的に終了します。"
+			"description": "現在このサーバーで行われているクイズを強制的に終了します。"
 		}
 	}
 }

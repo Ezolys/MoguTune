@@ -49,8 +49,11 @@ class QuizCommands(discord.Cog):
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
 		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""
+		# 入力内容が0文字の場合のみ一覧を返す
 		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
-		return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
+		if ctx.value == "":
+			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
+		return []
 
 	@commands.slash_command()
 	@discord.guild_only()
@@ -59,12 +62,12 @@ class QuizCommands(discord.Cog):
 	async def play(
 		self,
 		ctx: discord.ApplicationContext,
-		query: discord.Option(str, required=False, default=""),  # pyright: ignore[reportInvalidTypeForm]
-		preset: discord.Option(
-			str,
-			required=False,
-			autocomplete=get_presets,
-		),  # pyright: ignore[reportInvalidTypeForm]
+		query: discord.Option(str, required=True, autocomplete=get_presets),  # pyright: ignore[reportInvalidTypeForm]
+		# preset: discord.Option(
+		# 	str,
+		# 	required=False,
+		# 	autocomplete=get_presets,
+		# ),  # pyright: ignore[reportInvalidTypeForm]
 		# search_type: discord.Option(
 		# 	input_type=str,
 		# 	required=False,
@@ -94,7 +97,7 @@ class QuizCommands(discord.Cog):
 			return
 
 		# クイズを開始
-		await prepare_play(ctx.interaction, ctx.user, ctx.guild, query, preset, q_count)
+		await prepare_play(ctx.interaction, ctx.user, ctx.guild, query, q_count)
 
 	@commands.slash_command()
 	@discord.guild_only()

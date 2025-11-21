@@ -1198,14 +1198,13 @@ async def prepare_play(
 	user: discord.Member,
 	guild: discord.Guild,
 	query: str = "",
-	preset: str | None = None,
 	q_count: int = 10,
 ) -> None:
 	"""クイズを開始する"""
 	session = None
 	try:
 		# プレイリストのURLとプリセットどちらも指定されていない場合はエラーメッセージを返す
-		if query == "" and preset is None:
+		if query == "":
 			await inter.respond(embed=EmbedsTemplates.error(description=t("cmd.play.no_query")), ephemeral=True)
 			return
 
@@ -1255,10 +1254,6 @@ async def prepare_play(
 
 		# プレイリストを検索
 		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
-		# プリセットが指定されている場合はプリセットのプレイリストを取得する
-		if preset:
-			logger.debug(f"- プリセット指定: {preset}")
-			query = preset
 		try:
 			tracks = await player.fetch_tracks(query, search_type)
 		except Exception:
