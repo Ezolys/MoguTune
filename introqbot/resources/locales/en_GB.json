@@ -90,11 +90,7 @@
 			"options": {
 				"query": {
 					"name": "query",
-					"description": "URL of the playlist to use for the quiz (YouTube or Spotify)"
-				},
-				"preset": {
-					"name": "preset",
-					"description": "Playlist preset (if specified, the query option will be ignored.)"
+					"description": "URL of the playlist to use for the quiz (YouTube, Spotify, SoundCloud, niconico)"
 				},
 				"q_count": {
 					"name": "q_count",
@@ -104,7 +100,7 @@
 		},
 		"end": {
 			"name": "end",
-			"description": "Forcibly ends the ongoing quiz."
+			"description": "Forcibly terminate the quiz currently running on this server."
 		}
 	}
 }
