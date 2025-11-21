@@ -1378,7 +1378,7 @@ async def on_track_end(event: mafic.TrackEndEvent):
 	if session is None:
 		return
 
-	# SFXの再生が終了した場合
+		# SFXの再生が終了した場合
 	if session.is_playing_sfx:
 		logger.debug(f"SFX再生終了イベント: {guild_id}")
 		# 元の楽曲の再生を再開
@@ -1389,22 +1389,23 @@ async def on_track_end(event: mafic.TrackEndEvent):
 					logger.debug("- REPLACEDのため無視")
 					return
 
-				# SFX再生前に再生中だった場合のみ再開する
-				# if session.was_playing_before_sfx:
+				# 元の楽曲を復帰
 				await session.pl.play(
 					session.original_track_before_sfx,
 					start_time=session.original_position_before_sfx,
 					volume=session.PL_VOLUME,
 				)
 
-				# if not session.was_playing_before_sfx:
-				# 	await session.pl.pause()
-				# else:
-				# 	logger.debug("- SFX再生前に再生していなかったため復帰しません")
-				# await session.pl.resume()  # play() で再生されるはずなので不要
+				# SFX再生前に一時停止していた場合は一時停止状態に戻す
+				if not session.was_playing_before_sfx:
+					logger.debug("- SFX再生前は一時停止中だったため、一時停止状態に戻します")
+					await session.pl.pause()
 			except Exception:
 				logger.error("SFX終了後の楽曲復帰に失敗しました")
 				logger.error(traceback.format_exc())
+		else:
+			# 元の楽曲がない = SFX再生前は何も再生していない状態だった
+			logger.debug("- SFX再生前は何も再生していなかったため、復帰しません")
 
 		session.SFX_FINISHED.set()
 		return
