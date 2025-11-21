@@ -243,8 +243,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				title=t("view.q.answer_select.correct.title"),
 				description=t("view.q.answer_select.correct.description", interaction.user.mention, _title, _track.uri),
 				icon="✅",
-			).set_thumbnail(url=_track.artwork_url)  # ジャケットを設定
-			logger.info(_track.artwork_url)
+			).set_image(url=_track.artwork_url)  # ジャケットを設定
 			# メッセージを送信
 			next_q_button = QuizNextQButtonView(self.session_id, disabled=True)
 			_ = await interaction.response.send_message(
@@ -263,13 +262,12 @@ class QuizAnswerSelectView(discord.ui.View):
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- 正解後再生開始")
-			if _track.source == "youtube":
+			_position = 0
+			if _track.uri is not None and ("youtube.com" in _track.uri or "youtu.be" in _track.uri):
 				_position = await YTMostReplayedAPI.get_chorus_info(_track.uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
-			else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
-				_position = 0
 			logger.debug(f"Resuming track: {_track.uri} at {_position}")
 			await self.session.pl.play(_track, start_time=_position, volume=self.session.PL_VOLUME)
 
@@ -410,14 +408,22 @@ class QuizAnswerButtonView(discord.ui.View):
 		# 通知メッセージに情報を表示するために再生している楽曲を保持する
 		pl_current = self.session.pl.current
 
+		# トラックを取得
+		_track = pl_current
+		# タイトルを生成
+		# YouTube の場合はアーティスト名を含めない
+		_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
+		# 埋め込みメッセージを生成
+		_embed = EmbedsTemplates.info(
+			title=t("msg.q.skip.title"),
+			description=t("msg.q.skip.description", _title, _track.uri),
+			icon="⏭️",
+		).set_image(url=_track.artwork_url)  # ジャケットを設定
+
 		# 通知メッセージを送信する
 		next_q_button = QuizNextQButtonView(self.session_id, disabled=True)  # 次の問題へ ボタン
 		msg = await interaction.respond(
-			embed=EmbedsTemplates.info(
-				title=t("msg.q.skip.title"),
-				description=t("msg.q.skip.description", pl_current.title, pl_current.uri),
-				icon="⏭️",
-			),
+			embed=_embed,
 			view=next_q_button,
 		)
 
@@ -430,13 +436,14 @@ class QuizAnswerButtonView(discord.ui.View):
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- スキップ後再生開始")
-			if self.session.pl.current.source == "youtube":
+			_position = 0
+			if self.session.pl.current.uri is not None and (
+				"youtube.com" in self.session.pl.current.uri or "youtu.be" in self.session.pl.current.uri
+			):
 				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
-			else:  # ソースが YouTube 以外の場合は再生位置を先頭にする
-				_position = 0
 			logger.debug(f"Resuming track (Skip): {pl_current.uri} at {_position}")
 			await self.session.pl.play(pl_current, start_time=_position, volume=self.session.PL_VOLUME)
 
