@@ -4,7 +4,7 @@ import logging
 import random
 import traceback
 from dataclasses import dataclass, field
-from pathlib import Path
+from os import getenv
 
 import discord
 import mafic
@@ -488,10 +488,10 @@ class QuizSession:
 	query: str
 	"""プレイリストのURL"""
 
-	PL_VOLUME: int = 10
+	PL_VOLUME: int = int(getenv("MUSIC_VOLUME", "10"))
 	"""プレイヤーで再生する音楽の音量"""
 
-	PL_SFX_VOLUME: int = 15
+	PL_SFX_VOLUME: int = int(getenv("SFX_VOLUME", "10"))
 	"""プレイヤーで再生するSFXの音量"""
 
 	players: list[QuizPlayer] = field(default_factory=list)
