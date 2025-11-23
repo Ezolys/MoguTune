@@ -155,12 +155,6 @@ class QuizAnswerSelectView(discord.ui.View):
 		logger.debug("Answer Select Options")
 		for at in answer_tracks:
 			logger.debug(f"{at.title}: {at.uri}")
-			logger.debug(f"  - Source: {at.source}")
-			logger.debug(f"  - ID: {at.identifier}")
-			if hasattr(at, "plugin_info"):
-				logger.debug(f"  - Plugin Info: {at.plugin_info}")
-			else:
-				logger.debug("  - Plugin Info: None")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
@@ -269,8 +263,12 @@ class QuizAnswerSelectView(discord.ui.View):
 			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- 正解後再生開始")
 			_position = 0
-			if _track.uri is not None and ("youtube.com" in _track.uri or "youtu.be" in _track.uri):
-				_position = await YTMostReplayedAPI.get_chorus_info(_track.uri)
+			_uri = await self.session.resolve_youtube_track_uri(_track)
+			if _uri is None:
+				_uri = _track.uri
+
+			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
@@ -443,10 +441,12 @@ class QuizAnswerButtonView(discord.ui.View):
 		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- スキップ後再生開始")
 			_position = 0
-			if self.session.pl.current.uri is not None and (
-				"youtube.com" in self.session.pl.current.uri or "youtu.be" in self.session.pl.current.uri
-			):
-				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
+			_uri = await self.session.resolve_youtube_track_uri(self.session.pl.current)
+			if _uri is None:
+				_uri = self.session.pl.current.uri
+
+			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
@@ -751,6 +751,48 @@ class QuizSession:
 			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
 			if restore and before_can_answered:
 				self.can_answered = True
+
+	async def resolve_youtube_track_uri(self, track: mafic.Track) -> str | None:
+		"""トラックのYouTube URLを解決する"""
+		if track.source == "youtube":
+			return track.uri
+
+		# ISRC を取得してみる
+		_isrc = getattr(track, "isrc", None)
+
+		# ISRC がない場合は plugin_info から探してみる
+		if _isrc is None and hasattr(track, "plugin_info") and track.plugin_info:
+			_isrc = track.plugin_info.get("isrc")
+
+		logger.debug(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
+		try:
+			if _isrc:
+				_search_query = f'ytsearch:"{_isrc}"'
+			else:
+				_search_query = f"ytsearch:{track.author} - {track.title}"
+
+			_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
+				_uri = _search_results[0].uri
+				logger.debug(f"Found YouTube track (ISRC): {_uri}")
+				return _uri
+			# ISRC で見つからなかった場合はタイトルで再検索
+			if _isrc:
+				logger.warning("YouTube track not found via ISRC. Retrying with title...")
+				_search_query = f"ytsearch:{track.author} - {track.title}"
+				_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+				if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
+					_uri = _search_results[0].uri
+					logger.debug(f"Found YouTube track (Title): {_uri}")
+					return _uri
+				logger.warning("YouTube track not found via title search.")
+			else:
+				logger.warning("YouTube track not found via search.")
+		except Exception:
+			logger.error("Failed to search YouTube track.")
+			logger.error(traceback.format_exc())
+
+		return None
 
 	async def end(self) -> None:
 		"""クイズを終了する"""
