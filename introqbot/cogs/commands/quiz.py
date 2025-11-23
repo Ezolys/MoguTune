@@ -120,7 +120,7 @@ class QuizCommands(discord.Cog):
 				)
 				return
 			# クイズを強制終了する
-			await quiz_session_manager.end_session(session.guild_id)
+			await session.end()
 			await ctx.respond(
 				embed=EmbedsTemplates.success(description=t("cmd.end.ended", ctx.guild.get_channel(session.channel_id).mention)),
 				ephemeral=True,

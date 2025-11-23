@@ -803,8 +803,8 @@ class QuizSession:
 			logger.error("- 再生終了エラー")
 			logger.error(traceback.format_exc())
 
-		# セッションを削除する
-		quiz_session_manager.delete_session(self.guild_id)
+		# 待機状態を解除してループを回す
+		self.NEXT.set()
 
 	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
 		"""クイズを開始する"""
@@ -960,6 +960,8 @@ class QuizSession:
 
 				# 待機
 				logger.debug("待機")
+				if not self.playing:
+					break
 				await asyncio.sleep(self.q_wait_seconds)
 				# 待機時間をリセット
 				self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
