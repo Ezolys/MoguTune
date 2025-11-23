@@ -1096,13 +1096,13 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
-		# SFX
-		await self.play_sfx(SFX.A)
-
 		# 一時停止する
 		self.ANSWERED.clear()
 		logger.debug("- 一時停止")
 		await self.pl.pause()
+
+		# 全プレイヤーの不正解フラグをリセット
+		self.refresh()
 
 		# 全プレイヤーに解答中メッセージを送信する
 		as_msg = None
@@ -1119,9 +1119,6 @@ class QuizSession:
 				)
 			)
 
-		# 全プレイヤーの不正解フラグをリセット
-		self.refresh()
-
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
@@ -1130,6 +1127,9 @@ class QuizSession:
 			ephemeral=True,
 			wait=True,
 		)
+
+		# SFX
+		await self.play_sfx(SFX.A)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
