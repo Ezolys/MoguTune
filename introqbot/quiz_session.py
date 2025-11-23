@@ -155,6 +155,12 @@ class QuizAnswerSelectView(discord.ui.View):
 		logger.debug("Answer Select Options")
 		for at in answer_tracks:
 			logger.debug(f"{at.title}: {at.uri}")
+			logger.debug(f"  - Source: {at.source}")
+			logger.debug(f"  - ID: {at.identifier}")
+			if hasattr(at, "plugin_info"):
+				logger.debug(f"  - Plugin Info: {at.plugin_info}")
+			else:
+				logger.debug("  - Plugin Info: None")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
