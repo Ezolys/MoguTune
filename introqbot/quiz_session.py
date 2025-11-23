@@ -263,8 +263,12 @@ class QuizAnswerSelectView(discord.ui.View):
 			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- 正解後再生開始")
 			_position = 0
-			if _track.uri is not None and ("youtube.com" in _track.uri or "youtu.be" in _track.uri):
-				_position = await YTMostReplayedAPI.get_chorus_info(_track.uri)
+			_uri = await self.session.resolve_youtube_track_uri(_track)
+			if _uri is None:
+				_uri = _track.uri
+
+			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
@@ -437,10 +441,12 @@ class QuizAnswerButtonView(discord.ui.View):
 		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- スキップ後再生開始")
 			_position = 0
-			if self.session.pl.current.uri is not None and (
-				"youtube.com" in self.session.pl.current.uri or "youtu.be" in self.session.pl.current.uri
-			):
-				_position = await YTMostReplayedAPI.get_chorus_info(self.session.pl.current.uri)
+			_uri = await self.session.resolve_youtube_track_uri(self.session.pl.current)
+			if _uri is None:
+				_uri = self.session.pl.current.uri
+
+			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
 				logger.info(f"Play Position: {_position}")
 				if _position is None:
 					_position = 0
@@ -746,6 +752,48 @@ class QuizSession:
 			if restore and before_can_answered:
 				self.can_answered = True
 
+	async def resolve_youtube_track_uri(self, track: mafic.Track) -> str | None:
+		"""トラックのYouTube URLを解決する"""
+		if track.source == "youtube":
+			return track.uri
+
+		# ISRC を取得してみる
+		_isrc = getattr(track, "isrc", None)
+
+		# ISRC がない場合は plugin_info から探してみる
+		if _isrc is None and hasattr(track, "plugin_info") and track.plugin_info:
+			_isrc = track.plugin_info.get("isrc")
+
+		logger.debug(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
+		try:
+			if _isrc:
+				_search_query = f'ytsearch:"{_isrc}"'
+			else:
+				_search_query = f"ytsearch:{track.author} - {track.title}"
+
+			_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
+				_uri = _search_results[0].uri
+				logger.debug(f"Found YouTube track (ISRC): {_uri}")
+				return _uri
+			# ISRC で見つからなかった場合はタイトルで再検索
+			if _isrc:
+				logger.warning("YouTube track not found via ISRC. Retrying with title...")
+				_search_query = f"ytsearch:{track.author} - {track.title}"
+				_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+				if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
+					_uri = _search_results[0].uri
+					logger.debug(f"Found YouTube track (Title): {_uri}")
+					return _uri
+				logger.warning("YouTube track not found via title search.")
+			else:
+				logger.warning("YouTube track not found via search.")
+		except Exception:
+			logger.error("Failed to search YouTube track.")
+			logger.error(traceback.format_exc())
+
+		return None
+
 	async def end(self) -> None:
 		"""クイズを終了する"""
 		self.playing = False
@@ -755,8 +803,8 @@ class QuizSession:
 			logger.error("- 再生終了エラー")
 			logger.error(traceback.format_exc())
 
-		# セッションを削除する
-		quiz_session_manager.delete_session(self.guild_id)
+		# 待機状態を解除してループを回す
+		self.NEXT.set()
 
 	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
 		"""クイズを開始する"""
@@ -912,6 +960,8 @@ class QuizSession:
 
 				# 待機
 				logger.debug("待機")
+				if not self.playing:
+					break
 				await asyncio.sleep(self.q_wait_seconds)
 				# 待機時間をリセット
 				self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
@@ -1046,13 +1096,13 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.disable_all_items()
 
-		# SFX
-		await self.play_sfx(SFX.A)
-
 		# 一時停止する
 		self.ANSWERED.clear()
 		logger.debug("- 一時停止")
 		await self.pl.pause()
+
+		# 全プレイヤーの不正解フラグをリセット
+		self.refresh()
 
 		# 全プレイヤーに解答中メッセージを送信する
 		as_msg = None
@@ -1069,9 +1119,6 @@ class QuizSession:
 				)
 			)
 
-		# 全プレイヤーの不正解フラグをリセット
-		self.refresh()
-
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
@@ -1080,6 +1127,9 @@ class QuizSession:
 			ephemeral=True,
 			wait=True,
 		)
+
+		# SFX
+		await self.play_sfx(SFX.A)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
