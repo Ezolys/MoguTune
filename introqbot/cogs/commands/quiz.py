@@ -9,6 +9,7 @@ from pycord.localizer import Locale, t
 from introqbot.db import DBManager
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.localizations import Localization
 from introqbot.quiz_session import prepare_play, quiz_session_manager
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class QuizCommands(discord.Cog):
 	preset_list: list
 	preset_choices: dict[str, list[discord.OptionChoice]]
 
-	async def load_presets(self) -> None:
+	async def load_presets(self, i18n: Localization) -> None:
 		logger.info("プレイリストプリセットを読み込み")
 
 		# データーベースから最新のプリセットを取得して整形する
@@ -46,7 +47,12 @@ class QuizCommands(discord.Cog):
 				title_desc = f"{title} | {desc}" if desc != "" and desc is not None else title
 				# URL が設定されている場合のみ一覧へ追加する
 				if "url" in info and info.get("url") is not None:
-					self.preset_choices[lang_code].append(discord.OptionChoice(name=title_desc, value=info.get("url")))
+					self.preset_choices[lang_code].append(
+						discord.OptionChoice(
+							name=f"[{i18n.translate(text='cmd.play.query_preset', lang=lang_code)}] " + title_desc,
+							value=info.get("url"),
+						)
+					)
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
 		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""

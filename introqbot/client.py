@@ -67,7 +67,7 @@ async def send_heartbeat() -> None:
 # 1時間に1回プリセットを更新する
 @tasks.loop(hours=1)
 async def update_presets() -> None:
-	await client.get_cog("QuizCommands").load_presets()
+	await client.get_cog("QuizCommands").load_presets(i18n)
 
 
 # アプリケーションコマンド実行時のイベント
