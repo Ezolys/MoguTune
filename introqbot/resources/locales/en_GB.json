@@ -29,6 +29,8 @@
 		"cmd.play.not_a_playlist_url": "Please specify a playlist URL.",
 		"cmd.play.tracks_fetch_error": "Failed to fetch the playlist. Please try again after a while.\n(If this issue persists, please report it to the developer.)",
 		"cmd.play.query_preset": "Preset",
+		"cmd.play.ranking.point": "point",
+		"cmd.play.ranking.points": "points",
 		"ctxcmd.play.no_valid_url": "No valid URL found in the message.",
 		"view.q.join.label": "Join Quiz",
 		"view.q.join.msg.session_not_found": "The quiz you tried to join has already ended.",

@@ -980,14 +980,32 @@ class QuizSession:
 					ranking_list = [t("msg.q.end.no_players")]
 				else:
 					ranking_list = []
-					for p in self.players:
+					# ポイント順にソート
+					sorted_players = sorted(self.players, key=lambda x: x.point, reverse=True)
+
+					display_rank = 1
+					for i, p in enumerate(sorted_players):
+						# 前の人より点数が低ければ順位を更新 (同点の場合は順位を維持)
+						if i > 0 and p.point < sorted_players[i - 1].point:
+							display_rank = i + 1
+
 						member = await self.guild.get_or_fetch(discord.Member, p.id)
 						pn = "Unknown"
 						if member is not None:
 							pn = member.mention or member.display_name
-						ranking_list.append(f"{pn}: `{p.point}`")
+
+						rank_icon = f"**{display_rank}**"
+						if display_rank == 1:
+							rank_icon = "🥇"
+						elif display_rank == 2:
+							rank_icon = "🥈"
+						elif display_rank == 3:
+							rank_icon = "🥉"
+
+						pt = t("cmd.play.ranking.point") if p.point == 1 else t("cmd.play.ranking.points")
+						ranking_list.append(f"{rank_icon} {pn}: **`{p.point}`** {pt}")
 				# 結合
-				ranking = "- " + "\n- ".join(ranking_list)
+				ranking = "\n".join(ranking_list)
 
 				# 終了メッセージを送信する
 				await self.voice_channel.send(
