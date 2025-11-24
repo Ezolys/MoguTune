@@ -1358,7 +1358,9 @@ async def prepare_play(
 		# クイズ準備完了メッセージ送信
 		await msg.edit(
 			embed=EmbedsTemplates.info(
-				title=t("cmd.play.preparing_complete.title"), description=t("cmd.play.preparing_complete.description"), icon="☑️"
+				title=t("cmd.play.preparing_complete.title"),
+				description=t("cmd.play.preparing_complete.description", voice_channel.mention),
+				icon="☑️",
 			)
 		)
 		# クイズ開始
