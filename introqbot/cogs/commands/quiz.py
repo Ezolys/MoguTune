@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import get_args
 
 import discord
@@ -8,6 +9,7 @@ from pycord.localizer import Locale, t
 from introqbot.db import DBManager
 from introqbot.debug_logger import DebugLogger
 from introqbot.embeds import EmbedsTemplates
+from introqbot.localizations import Localization
 from introqbot.quiz_session import prepare_play, quiz_session_manager
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,7 @@ class QuizCommands(discord.Cog):
 	preset_list: list
 	preset_choices: dict[str, list[discord.OptionChoice]]
 
-	async def load_presets(self) -> None:
+	async def load_presets(self, i18n: Localization) -> None:
 		logger.info("プレイリストプリセットを読み込み")
 
 		# データーベースから最新のプリセットを取得して整形する
@@ -45,7 +47,12 @@ class QuizCommands(discord.Cog):
 				title_desc = f"{title} | {desc}" if desc != "" and desc is not None else title
 				# URL が設定されている場合のみ一覧へ追加する
 				if "url" in info and info.get("url") is not None:
-					self.preset_choices[lang_code].append(discord.OptionChoice(name=title_desc, value=info.get("url")))
+					self.preset_choices[lang_code].append(
+						discord.OptionChoice(
+							name=f"[{i18n.translate(text='cmd.play.query_preset', lang=lang_code)}] " + title_desc,
+							value=info.get("url"),
+						)
+					)
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
 		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""
@@ -54,6 +61,23 @@ class QuizCommands(discord.Cog):
 		if ctx.value == "":
 			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
 		return []
+
+	@commands.message_command()
+	@discord.guild_only()
+	@discord.default_permissions(send_messages=True)
+	@commands.cooldown(2, 5)
+	async def play_context_menu(self, ctx: discord.ApplicationContext, message: discord.Message) -> None:
+		# メッセージからURLを抽出
+		url_pattern = r"https?://[\w/:%#\$&\?\(\)~\.=\+\-]+"
+		match = re.search(url_pattern, message.content)
+		if not match:
+			await ctx.respond(
+				embed=EmbedsTemplates.error(description=t("ctxcmd.play.no_valid_url")),
+				ephemeral=True,
+			)
+			return
+
+		await self.play(ctx, match.group(0), 10)
 
 	@commands.slash_command()
 	@discord.guild_only()

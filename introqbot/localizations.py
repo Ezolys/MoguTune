@@ -65,12 +65,12 @@ class Localization:
 		if values is None:
 			values = []
 
+		tr_text = text
+
 		try:
 			if self.LOCALE_DATA is not None:
-				return self.LOCALE_DATA[lang]["strings"][text].format(*values)
+				tr_text = self.LOCALE_DATA[lang]["strings"][text].format(*values)
 		except KeyError as e:
 			logger.error("Translate Error - KeyError: %s", str(e))
-			return text
-
-		logger.error("Translate Error - LOCALE_DATA is None")
-		return text
+			tr_text = self.LOCALE_DATA["en_GB"]["strings"][text].format(*values)
+		return tr_text

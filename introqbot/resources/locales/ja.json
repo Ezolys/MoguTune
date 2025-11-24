@@ -11,23 +11,27 @@
 		"cmdmsg.cooldown_warning": "コマンドを実行する間隔が短すぎます。\n{0} 秒後に再度お試しください。",
 		"cmdmsg.not_owner": "あなたにはこのコマンドを実行する権限がありません。",
 		"cmd.ping.result": "Pong! (`{0}` ms)",
-		"cmd.start.not_specified_voice_channel": "ボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
+		"cmd.start.not_specified_voice_channel": "ボイスチャンネルに接続してからクイズを開始してください。",
 		"cmd.start.already_started": "このサーバーでは {0} で既にクイズが開始されています。",
 		"cmd.start.started.title": "クイズを開始しました",
 		"cmd.start.started.description": "{0} でクイズを開始しました。",
 		"cmd.end.ended": "{0} のクイズを終了しました。",
 		"cmd.end.quiz_not_started": "このサーバーではクイズが開始されていません。",
 		"cmd.end.do_not_have_permission": "あなたはこのクイズの主催者ではないため、終了することはできません！",
-		"cmd.play.preparing.title": "準備中...",
+		"cmd.play.preparing.title": "準備中",
 		"cmd.play.preparing.description": "クイズの準備中です...\nしばらくお待ちください...",
 		"cmd.play.preparing_complete.title": "準備完了！",
-		"cmd.play.preparing_complete.description": "クイズの準備が完了しました！\n開始します...",
+		"cmd.play.preparing_complete.description": "クイズの準備が完了しました！\n開始します...\n\nボイスチャンネル: {0}",
 		"cmd.play.no_query": "プレイリストのURLまたはプリセットを指定してください。",
-		"cmd.play.not_specified_voice_channel": "クイズが開始されているボイスチャンネルに接続するか、ボイスチャンネルを指定してください。",
+		"cmd.play.not_specified_voice_channel": "クイズが開始されているボイスチャンネルに接続してからプレイしてください。",
 		"cmd.play.quiz_not_started": "このサーバーではクイズが開始されていません。\nクイズを開始してからもう一度お試しください。",
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
 		"cmd.play.not_a_playlist_url": "プレイリストのURLを指定してください。",
 		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\n(この問題が解消しない場合は、開発者へ報告してください。)",
+		"cmd.play.query_preset": "プリセット",
+		"cmd.play.ranking.point": "点",
+		"cmd.play.ranking.points": "点",
+		"ctxcmd.play.no_valid_url": "メッセージ内に有効なURLが見つかりませんでした。",
 		"view.q.join.label": "クイズに参加",
 		"view.q.join.msg.session_not_found": "参加しようとしたクイズは既に終了しています。",
 		"view.q.join.msg.already_joined": "あなたは既にこのクイズに参加しています。",
@@ -102,6 +106,11 @@
 		"end": {
 			"name": "end",
 			"description": "現在このサーバーで行われているクイズを強制的に終了します。"
+		}
+	},
+	"context_menus": {
+		"play_context_menu": {
+			"name": "クイズをプレイ"
 		}
 	}
 }
