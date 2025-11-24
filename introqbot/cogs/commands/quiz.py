@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import get_args
 
 import discord
@@ -54,6 +55,23 @@ class QuizCommands(discord.Cog):
 		if ctx.value == "":
 			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
 		return []
+
+	@commands.message_command()
+	@discord.guild_only()
+	@discord.default_permissions(send_messages=True)
+	@commands.cooldown(2, 5)
+	async def play_context_menu(self, ctx: discord.ApplicationContext, message: discord.Message) -> None:
+		# メッセージからURLを抽出
+		url_pattern = r"https?://[\w/:%#\$&\?\(\)~\.=\+\-]+"
+		match = re.search(url_pattern, message.content)
+		if not match:
+			await ctx.respond(
+				embed=EmbedsTemplates.error(description=t("ctxcmd.play.no_valid_url")),
+				ephemeral=True,
+			)
+			return
+
+		await self.play(ctx, match.group(0), 10)
 
 	@commands.slash_command()
 	@discord.guild_only()

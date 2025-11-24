@@ -28,6 +28,7 @@
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
 		"cmd.play.not_a_playlist_url": "プレイリストのURLを指定してください。",
 		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\n(この問題が解消しない場合は、開発者へ報告してください。)",
+		"ctxcmd.play.no_valid_url": "メッセージ内に有効なURLが見つかりませんでした。",
 		"view.q.join.label": "クイズに参加",
 		"view.q.join.msg.session_not_found": "参加しようとしたクイズは既に終了しています。",
 		"view.q.join.msg.already_joined": "あなたは既にこのクイズに参加しています。",
@@ -102,6 +103,11 @@
 		"end": {
 			"name": "end",
 			"description": "現在このサーバーで行われているクイズを強制的に終了します。"
+		}
+	},
+	"context_menus": {
+		"play_context_menu": {
+			"name": "クイズをプレイ"
 		}
 	}
 }
