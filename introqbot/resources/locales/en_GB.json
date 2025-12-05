@@ -13,6 +13,7 @@
 		"cmd.ping.result": "Pong! (`{0}` ms)",
 		"cmd.start.not_specified_voice_channel": "Please connect to a voice channel before starting the quiz.",
 		"cmd.start.already_started": "A quiz has already started in {0} on this server.",
+		"cmd.start.limit_reached": "The session limit has been reached, so no more quizzes can be started.\nPlease try again later.",
 		"cmd.start.started.title": "Quiz Started",
 		"cmd.start.started.description": "A quiz has started in {0}.",
 		"cmd.end.ended": "The quiz in {0} has ended.",

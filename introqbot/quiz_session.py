@@ -1316,6 +1316,12 @@ async def prepare_play(
 			)
 			return
 
+		# セッション数制限チェック
+		max_sessions = int(getenv("MAX_SESSIONS", "0"))
+		if max_sessions > 0 and len(quiz_session_manager.sessions) >= max_sessions:
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.limit_reached")))
+			return
+
 		# VCへ接続
 		if voice_channel.guild.voice_client is not None:
 			# 既に接続している場合は一度切断する

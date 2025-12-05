@@ -13,6 +13,7 @@
 		"cmd.ping.result": "Pong! (`{0}` ms)",
 		"cmd.start.not_specified_voice_channel": "ボイスチャンネルに接続してからクイズを開始してください。",
 		"cmd.start.already_started": "このサーバーでは {0} で既にクイズが開始されています。",
+		"cmd.start.limit_reached": "セッション数が上限に達しているため、これ以上クイズを開始できません。\nしばらくしてからもう一度お試しください。",
 		"cmd.start.started.title": "クイズを開始しました",
 		"cmd.start.started.description": "{0} でクイズを開始しました。",
 		"cmd.end.ended": "{0} のクイズを終了しました。",
