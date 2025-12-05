@@ -32,6 +32,10 @@
 		"cmd.play.query_preset": "Preset",
 		"cmd.play.ranking.point": "point",
 		"cmd.play.ranking.points": "points",
+		"cmd.sessions.result.title": "Quiz Session Status",
+		"cmd.sessions.result.current": "Live quiz session",
+		"cmd.sessions.result.limit_none": "Unlimited",
+		"cmd.sessions.result.last_update": "Last Update",
 		"ctxcmd.play.no_valid_url": "No valid URL found in the message.",
 		"view.q.join.label": "Join Quiz",
 		"view.q.join.msg.session_not_found": "The quiz you tried to join has already ended.",
@@ -107,6 +111,10 @@
 		"end": {
 			"name": "end",
 			"description": "Forcibly ends the quiz currently running on this server."
+		},
+		"sessions": {
+			"name": "sessions",
+			"description": "Displays the number of quiz sessions currently being run by this bot."
 		}
 	},
 	"context_menus": {

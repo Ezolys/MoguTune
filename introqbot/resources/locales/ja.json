@@ -32,6 +32,10 @@
 		"cmd.play.query_preset": "プリセット",
 		"cmd.play.ranking.point": "点",
 		"cmd.play.ranking.points": "点",
+		"cmd.sessions.result.title": "クイズセッション状況",
+		"cmd.sessions.result.current": "実行中のクイズセッション",
+		"cmd.sessions.result.limit_none": "無制限",
+		"cmd.sessions.result.last_update": "最終更新",
 		"ctxcmd.play.no_valid_url": "メッセージ内に有効なURLが見つかりませんでした。",
 		"view.q.join.label": "クイズに参加",
 		"view.q.join.msg.session_not_found": "参加しようとしたクイズは既に終了しています。",
@@ -107,6 +111,10 @@
 		"end": {
 			"name": "end",
 			"description": "現在このサーバーで行われているクイズを強制的に終了します。"
+		},
+		"sessions": {
+			"name": "sessions",
+			"description": "現在のこのボットが実行しているクイズのセッション数を表示します。"
 		}
 	},
 	"context_menus": {
