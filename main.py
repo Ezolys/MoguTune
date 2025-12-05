@@ -1,3 +1,10 @@
+try:
+	from dotenv import load_dotenv
+
+	load_dotenv()
+except ImportError:
+	pass
+
 from introqbot.client import run
 
 

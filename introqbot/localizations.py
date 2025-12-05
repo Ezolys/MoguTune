@@ -71,6 +71,6 @@ class Localization:
 			if self.LOCALE_DATA is not None:
 				tr_text = self.LOCALE_DATA[lang]["strings"][text].format(*values)
 		except KeyError as e:
-			logger.error("Translate Error - KeyError: %s", str(e))
+			logger.debug("Translate Error - KeyError: %s", str(e))
 			tr_text = self.LOCALE_DATA["en_GB"]["strings"][text].format(*values)
 		return tr_text
