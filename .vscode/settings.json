@@ -7,5 +7,6 @@
 		},
 		"editor.defaultFormatter": "charliermarsh.ruff", // Ruffをデフォルトフォーマッターに設定
 	},
-	"python.terminal.useEnvFile": true, // ターミナルで.envファイルを使用
+	"python.pyrefly.displayTypeErrors": "force-on",
+	"editor.inlayHints.enabled": "onUnlessPressed",
 }
