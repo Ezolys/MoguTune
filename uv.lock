@@ -419,6 +419,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 
@@ -433,7 +434,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.13.1" }]
+dev = [
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "ruff", specifier = ">=0.13.1" },
+]
 
 [[package]]
 name = "mafic"
@@ -783,6 +787,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/35/2c/ee0b373a1861f66a7ca8bdb999331525615061320dd628527a50ba8e8a60/pynacl-1.6.0-cp38-abi3-win32.whl", hash = "sha256:dcdeb41c22ff3c66eef5e63049abf7639e0db4edee57ba70531fc1b6b133185d", size = 226461, upload-time = "2025-09-10T23:39:11.894Z" },
     { url = "https://files.pythonhosted.org/packages/75/f7/41b6c0b9dd9970173b6acc026bab7b4c187e4e5beef2756d419ad65482da/pynacl-1.6.0-cp38-abi3-win_amd64.whl", hash = "sha256:cf831615cc16ba324240de79d925eacae8265b7691412ac6b24221db157f6bd1", size = 238802, upload-time = "2025-09-10T23:39:08.966Z" },
     { url = "https://files.pythonhosted.org/packages/8e/0f/462326910c6172fa2c6ed07922b22ffc8e77432b3affffd9e18f444dbfbb/pynacl-1.6.0-cp38-abi3-win_arm64.whl", hash = "sha256:84709cea8f888e618c21ed9a0efdb1a59cc63141c403db8bf56c469b71ad56f2", size = 183846, upload-time = "2025-09-10T23:39:10.552Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/26/19cadc79a718c5edbec86fd4919a6b6d3f681039a2f6d66d14be94e75fb9/python_dotenv-1.2.1.tar.gz", hash = "sha256:42667e897e16ab0d66954af0e60a9caa94f0fd4ecf3aaf6d2d260eec1aa36ad6", size = 44221, upload-time = "2025-10-26T15:12:10.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl", hash = "sha256:b81ee9561e9ca4004139c6cbba3a238c32b03e4894671e181b671e8cb8425d61", size = 21230, upload-time = "2025-10-26T15:12:09.109Z" },
 ]
 
 [[package]]
