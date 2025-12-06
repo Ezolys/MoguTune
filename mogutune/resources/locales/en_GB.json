@@ -1,8 +1,8 @@
 {
 	"strings": {
 		"name": "English (GB)",
-		"embed.donate.title": "Would you like to support IntroQBot's development?",
-		"embed.donate.description": "Thank you for always using IntroQBot!\nThe development of this bot and the operation of its server are supported by your contributions.\n\nIf you'd like, please consider supporting future development!\n### - [GitHub Sponsors](https://github.com/sponsors/Milkeyyy)\n\n(Your support will be used for server maintenance costs and to maintain development motivation.)",
+		"embed.donate.title": "Would you like to support MoguTune's development?",
+		"embed.donate.description": "Thank you for always using MoguTune!\nThe development of this bot and the operation of its server are supported by your contributions.\n\nIf you'd like, please consider supporting future development!\n### - [GitHub Sponsors](https://github.com/sponsors/Milkeyyy)\n\n(Your support will be used for server maintenance costs and to maintain development motivation.)",
 		"embed.success.title": "Completed",
 		"embed.warning.title": "Warning",
 		"embed.error.title": "Error",

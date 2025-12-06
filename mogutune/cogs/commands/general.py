@@ -7,11 +7,11 @@ import discord
 from discord.ext import commands
 from pycord.localizer import t
 
-from introqbot.app import App
-from introqbot.client import client
-from introqbot.debug_logger import DebugLogger
-from introqbot.embeds import EmbedsTemplates
-from introqbot.quiz_session import quiz_session_manager
+from mogutune.app import App
+from mogutune.client import client
+from mogutune.debug_logger import DebugLogger
+from mogutune.embeds import EmbedsTemplates
+from mogutune.quiz_session import quiz_session_manager
 
 logger = logging.getLogger(__name__)
 

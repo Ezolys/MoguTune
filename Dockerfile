@@ -12,9 +12,9 @@ COPY ./requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
 COPY main.py /code/main.py
-COPY introqbot/*.py /code/introqbot/
-COPY introqbot/cogs/commands/*.py /code/introqbot/cogs/commands/
-COPY introqbot/resources/locales/*.json /code/introqbot/resources/locales/
+COPY mogutune/*.py /code/mogutune/
+COPY mogutune/cogs/commands/*.py /code/mogutune/cogs/commands/
+COPY mogutune/resources/locales/*.json /code/mogutune/resources/locales/
 COPY pyproject.toml /code/
 
 CMD ["python", "/code/main.py"]
