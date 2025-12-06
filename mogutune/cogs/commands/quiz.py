@@ -6,11 +6,11 @@ import discord
 from discord.ext import commands
 from pycord.localizer import Locale, t
 
-from introqbot.db import DBManager
-from introqbot.debug_logger import DebugLogger
-from introqbot.embeds import EmbedsTemplates
-from introqbot.localizations import Localization
-from introqbot.quiz_session import prepare_play, quiz_session_manager
+from mogutune.db import DBManager
+from mogutune.debug_logger import DebugLogger
+from mogutune.embeds import EmbedsTemplates
+from mogutune.localizations import Localization
+from mogutune.quiz_session import prepare_play, quiz_session_manager
 
 logger = logging.getLogger(__name__)
 

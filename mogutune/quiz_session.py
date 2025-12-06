@@ -10,11 +10,11 @@ import discord
 import mafic
 from pycord.localizer import t
 
-from introqbot.chorus import YTMostReplayedAPI
-from introqbot.client import client
-from introqbot.debug_logger import DebugLogger
-from introqbot.embeds import EmbedsTemplates
-from introqbot.sfx import SFX
+from mogutune.chorus import YTMostReplayedAPI
+from mogutune.client import client
+from mogutune.debug_logger import DebugLogger
+from mogutune.embeds import EmbedsTemplates
+from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

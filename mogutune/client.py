@@ -7,13 +7,13 @@ import mafic
 from discord.ext import commands, tasks
 from pycord.localizer import t
 
-from introqbot.app import App
-from introqbot.db import DBManager
-from introqbot.debug_logger import DebugLogger
-from introqbot.embeds import EmbedsTemplates
-from introqbot.kumasan import KumaSan
-from introqbot.localizations import Localization
-from introqbot.logger import setup_logging
+from mogutune.app import App
+from mogutune.db import DBManager
+from mogutune.debug_logger import DebugLogger
+from mogutune.embeds import EmbedsTemplates
+from mogutune.kumasan import KumaSan
+from mogutune.localizations import Localization
+from mogutune.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()
 	# Cogs の読み込み
-	client.load_extensions("introqbot.cogs.commands")
+	client.load_extensions("mogutune.cogs.commands")
 	# コマンドのローカライズ
 	i18n.localize_commands()
 	# Bot の起動

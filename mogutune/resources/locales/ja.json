@@ -1,8 +1,8 @@
 {
 	"strings": {
 		"name": "日本語 / Japanese",
-		"embed.donate.title": "IntroQBot の開発を応援しませんか？",
-		"embed.donate.description": "いつも IntroQBot をご利用いただき、ありがとうございます！\nこのBotの開発やサーバーの運営は、皆さまからのご支援によって支えられています。\n\nもしよろしければ、今後の開発の応援をお願いいたします！\n### - [GitHub Sponsors](https://github.com/sponsors/Milkeyyy)\n\n(いただいたご支援は、サーバー維持費や開発のモチベーション維持に活用させていただきます。)",
+		"embed.donate.title": "MoguTune の開発を応援しませんか？",
+		"embed.donate.description": "いつも MoguTune をご利用いただき、ありがとうございます！\nこのBotの開発やサーバーの運営は、皆さまからのご支援によって支えられています。\n\nもしよろしければ、今後の開発の応援をお願いいたします！\n### - [GitHub Sponsors](https://github.com/sponsors/Milkeyyy)\n\n(いただいたご支援は、サーバー維持費や開発のモチベーション維持に活用させていただきます。)",
 		"embed.success.title": "完了",
 		"embed.warning.title": "警告",
 		"embed.error.title": "エラー",

@@ -5,7 +5,7 @@ try:
 except ImportError:
 	pass
 
-from introqbot.client import run
+from mogutune.client import run
 
 
 def main() -> None:

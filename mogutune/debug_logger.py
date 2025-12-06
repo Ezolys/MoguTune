@@ -4,7 +4,7 @@ import traceback
 import discord
 import uuid_utils as uuid
 
-from introqbot.embeds import EmbedsTemplates
+from mogutune.embeds import EmbedsTemplates
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,8 @@ import discord
 from discord.ext import commands
 from httpx import AsyncClient
 
-from introqbot.chorus import YTMostReplayedAPI
-from introqbot.embeds import EmbedsTemplates
+from mogutune.chorus import YTMostReplayedAPI
+from mogutune.embeds import EmbedsTemplates
 
 logger = logging.getLogger(__name__)
 
