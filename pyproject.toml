@@ -7,10 +7,10 @@ requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
     "mafic>=2.10.1",
-    "py-cord[speed,voice]>=2.7.0rc2",
+    "py-cord[spped,voice]>=2.7.0",
     "pycord-localizer>=0.1.3",
-    "pymongo>=4.15.4",
-    "uuid-utils>=0.11.1",
+    "pymongo>=4.15.5",
+    "uuid-utils>=0.12.0",
 ]
 
 [dependency-groups]
