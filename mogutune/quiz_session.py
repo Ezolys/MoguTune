@@ -757,37 +757,15 @@ class QuizSession:
 		if track.source == "youtube":
 			return track.uri
 
-		# ISRC を取得してみる
-		_isrc = getattr(track, "isrc", None)
-
-		# ISRC がない場合は plugin_info から探してみる
-		if _isrc is None and hasattr(track, "plugin_info") and track.plugin_info:
-			_isrc = track.plugin_info.get("isrc")
-
-		logger.debug(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
+		logger.debug(f"Searching YouTube for: {track.author} - {track.title}")
 		try:
-			if _isrc:
-				_search_query = f'ytsearch:"{_isrc}"'
-			else:
-				_search_query = f"ytsearch:{track.author} - {track.title}"
-
+			_search_query = f"ytsearch:{track.author} - {track.title}"
 			_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
 			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
 				_uri = _search_results[0].uri
-				logger.debug(f"Found YouTube track (ISRC): {_uri}")
+				logger.debug(f"Found YouTube track (Title): {_uri}")
 				return _uri
-			# ISRC で見つからなかった場合はタイトルで再検索
-			if _isrc:
-				logger.warning("YouTube track not found via ISRC. Retrying with title...")
-				_search_query = f"ytsearch:{track.author} - {track.title}"
-				_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
-				if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
-					_uri = _search_results[0].uri
-					logger.debug(f"Found YouTube track (Title): {_uri}")
-					return _uri
-				logger.warning("YouTube track not found via title search.")
-			else:
-				logger.warning("YouTube track not found via search.")
+			logger.warning("YouTube track not found via title search.")
 		except Exception:
 			logger.error("Failed to search YouTube track.")
 			logger.error(traceback.format_exc())
