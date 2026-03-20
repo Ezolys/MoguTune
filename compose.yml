@@ -1,6 +1,6 @@
 services:
   bot:
-    build: ./Dockerfile
+    build: ./
     restart: unless-stopped
     volumes:
       - '.:/code/logs'
