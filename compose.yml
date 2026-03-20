@@ -6,45 +6,45 @@ services:
       - '.:/code/logs'
     environment:
       # Discord Bot Token [Required]
-      TOKEN: TOKEN
+      TOKEN: ${TOKEN:?error}
 
       # Music / SFX Volume [Option / Default: 10]
-      MUSIC_VOLUME: 10
-      SFX_VOLUME: 10
+      MUSIC_VOLUME: ${MUSIC_VOLUME:-10}
+      SFX_VOLUME: ${SFX_VOLUME:-10}
 
       # Max Quiz Sessions [Option / Default: 0 (Unlimited)]
-      MAX_SESSIONS: 0
+      MAX_SESSIONS: ${MAX_SESSIONS:-0}
 
       # MongoDB URI and DB Name [Required]
-      DB_URI: mongodb+srv://user:password@fqdn/?appName=name
-      DB_NAME: mogutune
+      DB_URI: ${DB_URI:?error}
+      DB_NAME: ${DB_NAME:-mogutune}
 
       # Lavalink v4 (LavaSrc Plugin Installation Recommended) [Required]
-      LAVALINK_HOST: localhost
-      LAVALINK_PORT: 2333
-      LAVALINK_PASSWORD: youshallnotpass
-      LAVALINK_SECURE: false
-      LAVALINK_LABEL: localhost
+      LAVALINK_HOST: ${LAVALINK_HOST:-localhost}
+      LAVALINK_PORT: ${LAVALINK_PORT:-2333}
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      LAVALINK_SECURE: ${LAVALINK_SECURE:-false}
+      LAVALINK_LABEL: ${LAVALINK_LABEL:-localhost}
 
       # SFX URL or File Path (Full Path) [Option]
-      #SFX_QUIZ_CORRECT: 
-      #SFX_QUIZ_INCORRECT: 
-      #SFX_QUIZ_Q: 
-      #SFX_QUIZ_A: 
+      SFX_QUIZ_CORRECT: ${SFX_QUIZ_CORRECT}
+      SFX_QUIZ_INCORRECT: ${SFX_QUIZ_INCORRECT}
+      SFX_QUIZ_Q: ${SFX_QUIZ_Q}
+      SFX_QUIZ_A: ${SFX_QUIZ_A}
 
       # YTMostReplayedAPI URL and Secret [Option]
-      #YTMRAPI_URL: 
-      #YTMRAPI_SECRET: 
+      YTMRAPI_URL: ${YTMRAPI_URL}
+      YTMRAPI_SECRET: ${YTMRAPI_SECRET}
 
       # Discord Server ID and Text Channel ID for debugging [Option]
-      #DEBUG_GUILD_ID: 
-      #DEBUG_TEXT_CHANNEL_ID: 
+      DEBUG_GUILD_ID: ${DEBUG_GUILD_ID}
+      DEBUG_TEXT_CHANNEL_ID: ${DEBUG_TEXT_CHANNEL_ID}
 
       # Uptime Kuma Push URL [Option]
-      #UPTIME_KUMA_PUSH_URL: 
+      UPTIME_KUMA_PUSH_URL: ${UPTIME_KUMA_PUSH_URL}
 
       # Debug Mode (true/false) [Option]
-      #DEBUG: true
+      DEBUG: ${DEBUG}
 
   lavalink:
     # - Deps
@@ -54,9 +54,9 @@ services:
       _JAVA_OPTIONS: -Xmx1G
 
       # Server Settings - Conf
-      SERVER_ADDRESS: 0.0.0.0
-      SERVER_PORT: 2333
-      LAVALINK_SERVER_PASSWORD: youshallnotpass
+      SERVER_ADDRESS: ${SERVER_ADDRESS:-0.0.0.0}
+      SERVER_PORT: ${SERVER_PORT:-2333}
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_SERVER_PASSWORD:-youshallnotpass}
 
       LAVALINK_SERVER_NON_ALLOCATING_FRAME_BUFFER: false
       LAVALINK_SERVER_BUFFER_DURATION_MS: 400
@@ -99,11 +99,11 @@ services:
       PLUGINS_LAVASRC_1_PROVIDERS: 'spsearch:isrc:%ISRC%'
 
       # LavaSrc Spotify API - Conf
-      PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID: id
-      PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET: secret
-      PLUGINS_LAVASRC_SPOTIFY_COUNTRY_CODE: JP
-      PLUGINS_LAVASRC_SPOTIFY_PLAYLIST_LOAD_LIMIT: 3
-      PLUGINS_LAVASRC_SPOTIFY_ALBUM_LOAD_LIMIT: 6
+      PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID: ${PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID}
+      PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET: ${PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET}
+      PLUGINS_LAVASRC_SPOTIFY_COUNTRY_CODE: ${PLUGINS_LAVASRC_SPOTIFY_COUNTRY_CODE:-JP}
+      PLUGINS_LAVASRC_SPOTIFY_PLAYLIST_LOAD_LIMIT: ${PLUGINS_LAVASRC_SPOTIFY_PLAYLIST_LOAD_LIMIT:-3}
+      PLUGINS_LAVASRC_SPOTIFY_ALBUM_LOAD_LIMIT: ${PLUGINS_LAVASRC_SPOTIFY_ALBUM_LOAD_LIMIT:-6}
       PLUGINS_LAVASRC_SPOTIFY_RESOLVE_ARTISTS_IN_SEARCH: true
       PLUGINS_LAVASRC_SPOTIFY_LOCAL_FILES: false
 
@@ -129,9 +129,9 @@ services:
       - 'sfx:/opt/Lavalink/sfx'
     user: '${UID}:${GID}'
     expose:
-      - 2333
+      - ${SERVER_PORT:-2333}
     ports:
-      - '2333:2333'
+      - '${SERVER_PORT:-2333}:${SERVER_PORT:-2333}'
 
 networks:
   lavalink:
