@@ -1,0 +1,138 @@
+services:
+  bot:
+    build: ./Dockerfile
+    restart: unless-stopped
+    volumes:
+      - '.:/code/logs'
+    environment:
+      # Discord Bot Token [Required]
+      TOKEN: TOKEN
+
+      # Music / SFX Volume [Option / Default: 10]
+      MUSIC_VOLUME: 10
+      SFX_VOLUME: 10
+
+      # Max Quiz Sessions [Option / Default: 0 (Unlimited)]
+      MAX_SESSIONS: 0
+
+      # MongoDB URI and DB Name [Required]
+      DB_URI: mongodb+srv://user:password@fqdn/?appName=name
+      DB_NAME: mogutune
+
+      # Lavalink v4 (LavaSrc Plugin Installation Recommended) [Required]
+      LAVALINK_HOST: localhost
+      LAVALINK_PORT: 2333
+      LAVALINK_PASSWORD: youshallnotpass
+      LAVALINK_SECURE: false
+      LAVALINK_LABEL: localhost
+
+      # SFX URL or File Path (Full Path) [Option]
+      #SFX_QUIZ_CORRECT: 
+      #SFX_QUIZ_INCORRECT: 
+      #SFX_QUIZ_Q: 
+      #SFX_QUIZ_A: 
+
+      # YTMostReplayedAPI URL and Secret [Option]
+      #YTMRAPI_URL: 
+      #YTMRAPI_SECRET: 
+
+      # Discord Server ID and Text Channel ID for debugging [Option]
+      #DEBUG_GUILD_ID: 
+      #DEBUG_TEXT_CHANNEL_ID: 
+
+      # Uptime Kuma Push URL [Option]
+      #UPTIME_KUMA_PUSH_URL: 
+
+      # Debug Mode (true/false) [Option]
+      #DEBUG: true
+
+  lavalink:
+    # - Deps
+    image: ghcr.io/lavalink-devs/lavalink:4.2.2
+    restart: unless-stopped
+    environment:
+      _JAVA_OPTIONS: -Xmx1G
+
+      # Server Settings - Conf
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: 2333
+      LAVALINK_SERVER_PASSWORD: youshallnotpass
+
+      LAVALINK_SERVER_NON_ALLOCATING_FRAME_BUFFER: false
+      LAVALINK_SERVER_BUFFER_DURATION_MS: 400
+      LAVALINK_SERVER_OPUS_ENCODING_QUALITY: 10
+      LAVALINK_SERVER_RESAMPLING_QUALITY: LOW
+      LAVALINK_SERVER_TRACK_STUCK_THRESHOLD_MS: 10000
+      LAVALINK_SERVER_USE_SEEK_GHOSTING: true
+      LAVALINK_SERVER_YOUTUBE_PLAYLIST_LOAD_LIMIT: 6
+      LAVALINK_SERVER_PLAYER_UPDATE_INTERVAL: 5
+      LAVALINK_SERVER_YOUTUBE_SEARCH_ENABLED: true
+      LAVALINK_SERVER_SOUNDCLOUD_SEARCH_ENABLED: true
+      LAVALINK_SERVER_GC_WARNINGS: true
+
+      # Search Sources
+      LAVALINK_SERVER_SOURCES_SOUNDCLOUD: true
+      LAVALINK_SERVER_SOURCES_LOCAL: true
+
+      LAVALINK_SERVER_SOURCES_YOUTUBE: false
+
+      # Filters
+      LAVALINK_SERVER_FILTERS_VOLUME: false
+      LAVALINK_SERVER_FILTERS_EQUALIZER: false
+      LAVALINK_SERVER_FILTERS_KARAOKE: false
+      LAVALINK_SERVER_FILTERS_TIMESCALE: false
+      LAVALINK_SERVER_FILTERS_TREMOLO: false
+      LAVALINK_SERVER_FILTERS_VIBRATO: false
+      LAVALINK_SERVER_FILTERS_DISTORTION: false
+      LAVALINK_SERVER_FILTERS_ROTATION: false
+      LAVALINK_SERVER_FILTERS_CHANNEL_MIX: false
+      LAVALINK_SERVER_FILTERS_LOW_PASS: false
+
+      # Plugins - Deps
+      LAVALINK_PLUGINS_0_DEPENDENCY: 'com.github.topi314.lavasrc:lavasrc-plugin:4.8.1'
+      LAVALINK_PLUGINS_1_DEPENDENCY: 'dev.lavalink.youtube:youtube-plugin:1.18.0'
+
+      # LavaSrc Plugin Search Sources
+      PLUGINS_LAVASRC_SOURCES_SPOTIFY: true
+
+      PLUGINS_LAVASRC_0_PROVIDERS: 'spsearch:%QUERY%'
+      PLUGINS_LAVASRC_1_PROVIDERS: 'spsearch:isrc:%ISRC%'
+
+      # LavaSrc Spotify API - Conf
+      PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID: id
+      PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET: secret
+      PLUGINS_LAVASRC_SPOTIFY_COUNTRY_CODE: JP
+      PLUGINS_LAVASRC_SPOTIFY_PLAYLIST_LOAD_LIMIT: 3
+      PLUGINS_LAVASRC_SPOTIFY_ALBUM_LOAD_LIMIT: 6
+      PLUGINS_LAVASRC_SPOTIFY_RESOLVE_ARTISTS_IN_SEARCH: true
+      PLUGINS_LAVASRC_SPOTIFY_LOCAL_FILES: false
+
+      # YouTube Source Plugin
+      PLUGINS_YOUTUBE_ENABLED: true
+      PLUGINS_YOUTUBE_ALLOW_SEARCH: true
+      PLUGINS_YOUTUBE_ALLOW_DIRECT_VIDEO_IDS: true
+      PLUGINS_YOUTUBE_ALLOW_DIRECT_PLAYLIST_IDS: true
+      PLUGINS_YOUTUBE_0_CLIENTS: MUSIC
+      PLUGINS_YOUTUBE_1_CLIENTS: ANDROID_VR
+      PLUGINS_YOUTUBE_2_CLIENTS: WEB
+      PLUGINS_YOUTUBE_3_CLIENTS: MWEB
+      PLUGINS_YOUTUBE_4_CLIENTS: ANDROID_MUSIC
+
+      METRICS_PROMETHEUS_ENABLED: false
+
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 256MB
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 30
+
+    volumes:
+      - './application.yml:/opt/Lavalink/application.yml'
+      - 'lavalink-plugins:/opt/Lavalink/plugins'
+      - 'sfx:/opt/Lavalink/sfx'
+    user: '${UID}:${GID}'
+    expose:
+      - 2333
+    ports:
+      - '2333:2333'
+
+networks:
+  lavalink:
+    name: lavalink
