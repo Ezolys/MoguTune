@@ -20,11 +20,11 @@ services:
       DB_NAME: ${DB_NAME:-mogutune}
 
       # Lavalink v4 (LavaSrc Plugin Installation Recommended) [Required]
-      LAVALINK_HOST: ${LAVALINK_HOST:-localhost}
+      LAVALINK_HOST: ${LAVALINK_HOST:-lavalink}
       LAVALINK_PORT: ${LAVALINK_PORT:-2333}
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
       LAVALINK_SECURE: ${LAVALINK_SECURE:-false}
-      LAVALINK_LABEL: ${LAVALINK_LABEL:-localhost}
+      LAVALINK_LABEL: ${LAVALINK_LABEL:-lavalink}
 
       # SFX URL or File Path (Full Path) [Option]
       SFX_QUIZ_CORRECT: ${SFX_QUIZ_CORRECT}
