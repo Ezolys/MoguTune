@@ -11,7 +11,7 @@ aiosignal==1.4.0
     # via aiohttp
 anyio==4.12.1
     # via httpx
-attrs==25.4.0
+attrs==26.1.0
     # via aiohttp
 certifi==2026.2.25
     # via
@@ -36,7 +36,7 @@ idna==3.11
     #   anyio
     #   httpx
     #   yarl
-mafic==2.10.1
+mafic==2.11.0
     # via mogutune
 multidict==6.7.1
     # via
