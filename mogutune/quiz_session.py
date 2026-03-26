@@ -1305,7 +1305,12 @@ async def prepare_play(
 			# 既に接続している場合は一度切断する
 			await voice_channel.guild.voice_client.disconnect()
 			await asyncio.sleep(2)
-		player = await voice_channel.connect(cls=mafic.Player)
+
+		try:
+			player = await voice_channel.connect(cls=mafic.Player)
+		except Exception:
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
+			return
 
 		# 検索タイプ
 		search_type = mafic.SearchType.YOUTUBE_MUSIC

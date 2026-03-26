@@ -26,6 +26,7 @@
 		"cmd.play.no_query": "プレイリストのURLまたはプリセットを指定してください。",
 		"cmd.play.not_specified_voice_channel": "クイズが開始されているボイスチャンネルに接続してからプレイしてください。",
 		"cmd.play.quiz_not_started": "このサーバーではクイズが開始されていません。\nクイズを開始してからもう一度お試しください。",
+		"cmd.play.cannot_connect_voice_channel": "ボイスチャンネルに接続できませんでした。\nしばらくしてからもう一度お試しください。",
 		"cmd.play.no_tracks_found": "一致するプレイリストが見つかりませんでした。",
 		"cmd.play.not_a_playlist_url": "プレイリストのURLを指定してください。",
 		"cmd.play.tracks_fetch_error": "プレイリストの取得に失敗しました。しばらくしてからもう一度お試しください。\n(この問題が解消しない場合は、開発者へ報告してください。)",

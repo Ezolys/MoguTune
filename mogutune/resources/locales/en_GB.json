@@ -26,6 +26,7 @@
 		"cmd.play.no_query": "Please specify a playlist URL or a preset.",
 		"cmd.play.not_specified_voice_channel": "Please connect to the voice channel where the quiz is running before playing.",
 		"cmd.play.quiz_not_started": "No quiz has started on this server.\nPlease start a quiz and try again.",
+		"cmd.play.cannot_connect_voice_channel": "Failed to connect to the voice channel. Please try again after a while.",
 		"cmd.play.no_tracks_found": "No matching playlist found.",
 		"cmd.play.not_a_playlist_url": "Please specify a playlist URL.",
 		"cmd.play.tracks_fetch_error": "Failed to fetch the playlist. Please try again after a while.\n(If this issue persists, please report it to the developer.)",
