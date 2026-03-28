@@ -1,5 +1,7 @@
 import logging
+import sys
 import traceback
+from asyncio import sleep
 from os import getenv
 
 import discord
@@ -38,14 +40,26 @@ class Bot(commands.Bot):
 		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
 		label = getenv("LAVALINK_LABEL", host)
 
-		logger.info("Lavalink ノードを追加: %s:%d (Secure: %s)", host, port, secure)
-		await self.pool.create_node(
-			host=host,
-			port=port,
-			label=label,
-			password=password,
-			secure=secure,
-		)
+		max_attempts = 5
+		for attempt in range(1, max_attempts + 1):
+			try:
+				logger.info("Lavalink ノードを追加: %s:%d (Secure: %s) [試行 %d/%d]", host, port, secure, attempt, max_attempts)
+				await self.pool.create_node(
+					host=host,
+					port=port,
+					label=label,
+					password=password,
+					secure=secure,
+				)
+				break
+			except Exception as e:
+				logger.warning("Lavalink ノード接続失敗 [試行 %d/%d]: %s", attempt, max_attempts, e)
+				if attempt < max_attempts:
+					await sleep(5)
+				else:
+					logger.exception("Lavalink ノードへの接続に %d 回失敗しました", max_attempts)
+					await KumaSan.ping(state="error", message=f"Lavalink ノードへの接続に {max_attempts} 回失敗しました")
+					sys.exit(1)
 
 
 intents = discord.Intents.default()
