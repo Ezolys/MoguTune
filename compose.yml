@@ -132,7 +132,3 @@ services:
       - ${SERVER_PORT:-2333}
     ports:
       - '${SERVER_PORT:-2333}:${SERVER_PORT:-2333}'
-
-networks:
-  lavalink:
-    name: lavalink
