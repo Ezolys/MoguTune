@@ -10,7 +10,7 @@ services:
 
       # Music / SFX Volume [Option / Default: 10]
       MUSIC_VOLUME: ${MUSIC_VOLUME:-10}
-      SFX_VOLUME: ${SFX_VOLUME:-10}
+      SFX_VOLUME: ${SFX_VOLUME:-20}
 
       # Max Quiz Sessions [Option / Default: 0 (Unlimited)]
       MAX_SESSIONS: ${MAX_SESSIONS:-0}
@@ -126,9 +126,7 @@ services:
       # LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 30
 
     volumes:
-      - './application.yml:/opt/Lavalink/application.yml'
       - 'lavalink-plugins:/opt/Lavalink/plugins'
-    # user: '${UID}:${GID}'
     expose:
       - ${SERVER_PORT:-2333}
     ports:
