@@ -1,0 +1,4 @@
+lavalink:
+  server:
+    sources:
+      local: true
