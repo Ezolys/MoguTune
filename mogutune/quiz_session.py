@@ -767,7 +767,7 @@ class QuizSession:
 		logger.debug(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
 		try:
 			if _isrc:
-				_search_results = await self.pl.fetch_tracks(f'"{_isrc}"', mafic.SearchType.YOUTUBE_MUSIC)
+				_search_results = await self.pl.fetch_tracks(f'"{_isrc}"', mafic.SearchType.YOUTUBE)
 			else:
 				_search_results = await self.pl.fetch_tracks(f"{track.author} - {track.title}", mafic.SearchType.YOUTUBE)
 			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
