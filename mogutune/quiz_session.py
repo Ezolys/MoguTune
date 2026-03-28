@@ -873,11 +873,22 @@ class QuizSession:
 			logger.info("Tracks Plugin Info")
 			logger.info(tracks.plugin_info)
 
+			# 表示するプレイリスト (アルバム) のタイトルの種類を設定する
+			playlist_title_prefix = t("msg.q.init.description.playlist_type.playlist")
+			if tracks.plugin_info is not None:
+				# Spotify
+				if tracks.tracks[0].source == "spotify":
+					# アルバム
+					if tracks.plugin_info["type"] == "album":
+						playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
+
+			playlist_title = playlist_title_prefix + ": " + tracks.name
+
 			# クイズ開始メッセージを送信
 			start_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(
 					title=t("msg.q.init.title"),
-					description=t("msg.q.init.description", tracks.name, q_count, player_list_text),
+					description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
 					icon="▶️",
 				)
 			)
