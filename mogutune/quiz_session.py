@@ -920,7 +920,7 @@ class QuizSession:
 						else:
 							player_mentions.append(member.display_name)
 				player_list_text = "  - " + "\n  - ".join(player_mentions)
-				start_msg.embeds[0].description = t("msg.q.init.description", tracks.name, q_count, player_list_text)
+				start_msg.embeds[0].description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
 				await start_msg.edit(embed=start_msg.embeds[0])
 
 				self.NEXT.clear()
