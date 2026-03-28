@@ -803,7 +803,7 @@ class QuizSession:
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
 
-	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
+	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int, query: str) -> bool | str:
 		"""クイズを開始する"""
 		try:
 			self.playing = True
@@ -873,25 +873,32 @@ class QuizSession:
 			logger.info("Tracks Plugin Info")
 			logger.info(tracks.plugin_info)
 
-			# 表示するプレイリスト (アルバム) のタイトルの種類を設定する
+			# 表示するプレイリスト (アルバム) のタイトルの種類とジャケットを設定する
 			playlist_title_prefix = t("msg.q.init.description.playlist_type.playlist")
+			artwork_url = None
 			if tracks.plugin_info is not None:
 				# Spotify
 				if tracks.tracks[0].source == "spotify":
 					# アルバム
-					if tracks.plugin_info["type"] == "album":
+					if tracks.plugin_info.get("type") == "album":
 						playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
+					# ジャケットを取得
+					artwork_url = tracks.plugin_info.get("artworkUrl")
 
-			playlist_title = playlist_title_prefix + ": " + tracks.name
+			# 表示するプレイリスト名のテキストを生成 (URLも挿入)
+			playlist_title = playlist_title_prefix + ": [" + tracks.name + "](" + query + ")"
+
+			# 埋め込みメッセージを生成
+			start_msg_embed = EmbedsTemplates.info(
+				title=t("msg.q.init.title"),
+				description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
+				icon="▶️",
+			)
+			# ジャケットを設定
+			start_msg_embed.set_thumbnail(url=artwork_url)
 
 			# クイズ開始メッセージを送信
-			start_msg = await self.voice_channel.send(
-				embed=EmbedsTemplates.info(
-					title=t("msg.q.init.title"),
-					description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
-					icon="▶️",
-				)
-			)
+			start_msg = await self.voice_channel.send(embed=start_msg_embed)
 			# 問題開始メッセージを送信
 			q_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
@@ -1404,7 +1411,7 @@ async def prepare_play(
 			)
 		)
 		# クイズ開始
-		play_result = await session.play(tracks, q_count, user.id)
+		play_result = await session.play(tracks, q_count, user.id, query)
 
 		# 内部エラー
 		if isinstance(play_result, str):
