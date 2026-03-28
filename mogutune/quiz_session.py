@@ -870,6 +870,9 @@ class QuizSession:
 						player_mentions.append(member.display_name)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
 
+			logger.info("Tracks Plugin Info")
+			logger.info(tracks.plugin_info)
+
 			# クイズ開始メッセージを送信
 			start_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(
