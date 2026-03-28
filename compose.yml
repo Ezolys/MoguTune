@@ -127,7 +127,7 @@ services:
       - './application.yml:/opt/Lavalink/application.yml'
       - 'lavalink-plugins:/opt/Lavalink/plugins'
       - './resources/sfx:/opt/Lavalink/sfx'
-    user: '${UID}:${GID}'
+    # user: '${UID}:${GID}'
     expose:
       - ${SERVER_PORT:-2333}
     ports:
