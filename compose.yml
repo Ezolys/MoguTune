@@ -48,7 +48,9 @@ services:
 
   lavalink:
     # - Deps
-    image: ghcr.io/lavalink-devs/lavalink:4.2.2
+    build:
+      context: .
+      dockerfile: Dockerfile.lavalink
     restart: unless-stopped
     environment:
       _JAVA_OPTIONS: -Xmx1G
@@ -126,7 +128,6 @@ services:
     volumes:
       - './application.yml:/opt/Lavalink/application.yml'
       - 'lavalink-plugins:/opt/Lavalink/plugins'
-      - './resources/sfx:/opt/Lavalink/sfx'
     # user: '${UID}:${GID}'
     expose:
       - ${SERVER_PORT:-2333}
