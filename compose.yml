@@ -127,7 +127,6 @@ services:
 
     volumes:
       - 'lavalink-plugins:/opt/Lavalink/plugins'
-      - './application.yml:/opt/Lavalink/application.yml:ro'
     expose:
       - ${SERVER_PORT:-2333}
     ports:
