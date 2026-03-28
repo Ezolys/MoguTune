@@ -1,17 +1,17 @@
 plugins:
-  # youtube:
-  #   enabled: true # Whether this source can be used.
-  #   allowSearch: true # Whether "ytsearch:" and "ytmsearch:" can be used.
-  #   allowDirectVideoIds: true # Whether just video IDs can match. If false, only complete URLs will be loaded.
-  #   allowDirectPlaylistIds: true # Whether just playlist IDs can match. If false, only complete URLs will be loaded.
-  #   # The clients to use for track loading. See below for a list of valid clients.
-  #   # Clients are queried in the order they are given (so the first client is queried first and so on...)
-  #   clients:
-  #     - MUSIC
-  #     - ANDROID_VR
-  #     - WEB
-  #     - MWEB
-  #     - ANDROID_MUSIC
+  youtube:
+    enabled: true # Whether this source can be used.
+    allowSearch: true # Whether "ytsearch:" and "ytmsearch:" can be used.
+    allowDirectVideoIds: true # Whether just video IDs can match. If false, only complete URLs will be loaded.
+    allowDirectPlaylistIds: true # Whether just playlist IDs can match. If false, only complete URLs will be loaded.
+    # The clients to use for track loading. See below for a list of valid clients.
+    # Clients are queried in the order they are given (so the first client is queried first and so on...)
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - MWEB
+      - ANDROID_MUSIC
   lavasrc:
     providers: # Custom providers for track loading. This is the default
 #      - "dzisrc:%ISRC%" # Deezer ISRC provider
@@ -29,7 +29,7 @@ plugins:
       vkmusic: false # Enable Vk Music source
       tidal: false # Enable Tidal source
       qobuz: false # Enabled qobuz source
-      ytdlp: true # Enable yt-dlp source
+      ytdlp: false # Enable yt-dlp source
       jiosaavn: false # Enable the JioSaavn source
     lyrics-sources:
       spotify: false # Enable Spotify lyrics source
@@ -124,7 +124,7 @@ server: # REST and WS server
 lavalink:
   plugins:
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.1"
-    # - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
     #- dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
 #    - dependency: "com.github.example:example-plugin:1.0.0" # required, the coordinates of your plugin
 #      repository: "https://maven.example.com/releases" # optional, defaults to the Lavalink releases repository by default
