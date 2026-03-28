@@ -757,15 +757,34 @@ class QuizSession:
 		if track.source == "youtube":
 			return track.uri
 
-		logger.debug(f"Searching YouTube for: {track.author} - {track.title}")
+		# ISRC を取得してみる
+		_isrc = getattr(track, "isrc", None)
+
+		# ISRC がない場合は plugin_info から探してみる
+		if _isrc is None and hasattr(track, "plugin_info") and track.plugin_info:
+			_isrc = track.plugin_info.get("isrc")
+
+		logger.info(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
 		try:
-			_search_query = f"ytsearch:{track.author} - {track.title}"
-			_search_results = await self.pl.fetch_tracks(_search_query, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+			if _isrc:
+				_search_results = await self.pl.fetch_tracks(f'"{_isrc}"', mafic.SearchType.YOUTUBE_MUSIC)
+			else:
+				_search_results = await self.pl.fetch_tracks(f"{track.author} - {track.title}", mafic.SearchType.YOUTUBE)
 			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
 				_uri = _search_results[0].uri
-				logger.debug(f"Found YouTube track (Title): {_uri}")
+				logger.info(f"Found YouTube track (ISRC): {_uri}")
 				return _uri
-			logger.warning("YouTube track not found via title search.")
+			# ISRC で見つからなかった場合はタイトルで再検索
+			if _isrc:
+				logger.warning("YouTube track not found via ISRC. Retrying with title...")
+				_search_results = await self.pl.fetch_tracks(f"{track.author} - {track.title}", mafic.SearchType.YOUTUBE)
+				if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
+					_uri = _search_results[0].uri
+					logger.info(f"Found YouTube track (Title): {_uri}")
+					return _uri
+				logger.warning("YouTube track not found via title search.")
+			else:
+				logger.warning("YouTube track not found via search.")
 		except Exception:
 			logger.error("Failed to search YouTube track.")
 			logger.error(traceback.format_exc())
@@ -784,7 +803,7 @@ class QuizSession:
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
 
-	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int) -> bool | str:
+	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int, query: str) -> bool | str:
 		"""クイズを開始する"""
 		try:
 			self.playing = True
@@ -851,14 +870,35 @@ class QuizSession:
 						player_mentions.append(member.display_name)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
 
-			# クイズ開始メッセージを送信
-			start_msg = await self.voice_channel.send(
-				embed=EmbedsTemplates.info(
-					title=t("msg.q.init.title"),
-					description=t("msg.q.init.description", tracks.name, q_count, player_list_text),
-					icon="▶️",
-				)
+			logger.info("Tracks Plugin Info")
+			logger.info(tracks.plugin_info)
+
+			# 表示するプレイリスト (アルバム) のタイトルの種類とジャケットを設定する
+			playlist_title_prefix = t("msg.q.init.description.playlist_type.playlist")
+			artwork_url = None
+			if tracks.plugin_info is not None:
+				# Spotify
+				if tracks.tracks[0].source == "spotify":
+					# アルバム
+					if tracks.plugin_info.get("type") == "album":
+						playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
+					# ジャケットを取得
+					artwork_url = tracks.plugin_info.get("artworkUrl")
+
+			# 表示するプレイリスト名のテキストを生成 (URLも挿入)
+			playlist_title = playlist_title_prefix + ": [" + tracks.name + "](" + query + ")"
+
+			# 埋め込みメッセージを生成
+			start_msg_embed = EmbedsTemplates.info(
+				title=t("msg.q.init.title"),
+				description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
+				icon="▶️",
 			)
+			# ジャケットを設定
+			start_msg_embed.set_thumbnail(url=artwork_url)
+
+			# クイズ開始メッセージを送信
+			start_msg = await self.voice_channel.send(embed=start_msg_embed)
 			# 問題開始メッセージを送信
 			q_msg = await self.voice_channel.send(
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
@@ -887,7 +927,7 @@ class QuizSession:
 						else:
 							player_mentions.append(member.display_name)
 				player_list_text = "  - " + "\n  - ".join(player_mentions)
-				start_msg.embeds[0].description = t("msg.q.init.description", tracks.name, q_count, player_list_text)
+				start_msg.embeds[0].description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
 				await start_msg.edit(embed=start_msg.embeds[0])
 
 				self.NEXT.clear()
@@ -1305,7 +1345,12 @@ async def prepare_play(
 			# 既に接続している場合は一度切断する
 			await voice_channel.guild.voice_client.disconnect()
 			await asyncio.sleep(2)
-		player = await voice_channel.connect(cls=mafic.Player)
+
+		try:
+			player = await voice_channel.connect(cls=mafic.Player)
+		except Exception:
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
+			return
 
 		# 検索タイプ
 		search_type = mafic.SearchType.YOUTUBE_MUSIC
@@ -1366,7 +1411,7 @@ async def prepare_play(
 			)
 		)
 		# クイズ開始
-		play_result = await session.play(tracks, q_count, user.id)
+		play_result = await session.play(tracks, q_count, user.id, query)
 
 		# 内部エラー
 		if isinstance(play_result, str):

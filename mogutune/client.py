@@ -1,5 +1,8 @@
+import json
 import logging
+import sys
 import traceback
+from asyncio import sleep
 from os import getenv
 
 import discord
@@ -38,14 +41,26 @@ class Bot(commands.Bot):
 		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
 		label = getenv("LAVALINK_LABEL", host)
 
-		logger.info("Lavalink ノードを追加: %s:%d (Secure: %s)", host, port, secure)
-		await self.pool.create_node(
-			host=host,
-			port=port,
-			label=label,
-			password=password,
-			secure=secure,
-		)
+		max_attempts = 5
+		for attempt in range(1, max_attempts + 1):
+			try:
+				logger.info("Lavalink ノードを追加: %s:%d (Secure: %s) [試行 %d/%d]", host, port, secure, attempt, max_attempts)
+				await self.pool.create_node(
+					host=host,
+					port=port,
+					label=label,
+					password=password,
+					secure=secure,
+				)
+				break
+			except Exception as e:
+				logger.warning("Lavalink ノード接続失敗 [試行 %d/%d]: %s", attempt, max_attempts, e)
+				if attempt < max_attempts:
+					await sleep(5)
+				else:
+					logger.exception("Lavalink ノードへの接続に %d 回失敗しました", max_attempts)
+					await KumaSan.ping(state="error", message=f"Lavalink ノードへの接続に {max_attempts} 回失敗しました")
+					sys.exit(1)
 
 
 intents = discord.Intents.default()
@@ -97,7 +112,7 @@ async def on_application_command_completion(ctx: discord.ApplicationContext) -> 
 
 
 # アプリケーションコマンドエラー時のイベント
-@client.listen()
+@client.event
 async def on_application_command_error(
 	ctx: discord.ApplicationContext,
 	ex: discord.DiscordException,
@@ -105,11 +120,27 @@ async def on_application_command_error(
 	if i18n.i18n:
 		await i18n.i18n.set_current_locale(ctx)
 
-	cmd_name = "!Unknown!"
-	if ctx.command is not None:
-		cmd_name = ctx.command.qualified_name
+	full_command_name = ctx.command.qualified_name if ctx.command is not None else "!Unknown!"
+	gn = None
+	if ctx.guild is not None:
+		gn = ctx.guild.name
+		logger.info(
+			"アプリケーションコマンド実行 - %s | ギルド: %s (%d) | 実行者: %s (%s)",
+			full_command_name,
+			ctx.guild.name,
+			ctx.guild.id,
+			ctx.user,
+			ctx.user.id,
+		)
+	else:
+		logger.info(
+			"アプリケーションコマンド実行 - %s | DM | 実行者: %s (%s)",
+			full_command_name,
+			ctx.user,
+			ctx.user.id,
+		)
 
-	logger.error("アプリケーションコマンド実行エラー: %s", cmd_name)
+	logger.error("アプリケーションコマンド実行エラー: %s", full_command_name)
 	logger.error(ex)
 
 	# クールダウン
@@ -123,10 +154,31 @@ async def on_application_command_error(
 		await ctx.respond(embed=EmbedsTemplates.error(description=t("cmdmsg.not_owner")), ephemeral=True)
 	# その他
 	else:
+		# Pycord特有のラップされたエラーから元のエラーを取り出す
+		original_ex = getattr(ex, "original", ex)
+
+		# 例外オブジェクトから直接トレースバック文字列を生成する
+		tb_strings = traceback.format_exception(type(original_ex), original_ex, original_ex.__traceback__)
+		tb_text = "".join(tb_strings)
+
 		# 内部エラーを報告してメッセージを送信する
 		await ctx.respond(
 			embed=EmbedsTemplates.internal_error(
-				error_code=await DebugLogger.report_internal_error("Exception: " + str(ex) + "\n\n" + traceback.format_exc())
+				error_code=await DebugLogger.report_internal_error(
+					"<Exception>\n" + str(original_ex) + "\n\n<Traceback>\n" + tb_text,
+					description=(
+						"<Application Command Error>\n"
+						f"- {'DM' if gn is None else f'Guild: {gn} (`{ctx.guild_id}`)'}\n"
+						f"- User: {ctx.user} (`{ctx.user.id}`)\n"
+						f"- Command: `{full_command_name}`\n"
+						"  - Options\n"
+						+ (
+							"\n".join(["    - `" + json.dumps(o) + "`" for o in ctx.selected_options])
+							if ctx.selected_options
+							else "    - None"
+						)
+					),
+				),
 			)
 		)
 

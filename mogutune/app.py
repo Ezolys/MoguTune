@@ -7,7 +7,7 @@ class App:
 	NAME: str
 	VERSION: tuple[int, int, int]
 	VERSION_STRING: str
-	COPYRIGHT: str = "Copyright (C) 2025 Milkeyyy"
+	COPYRIGHT: str = "Copyright (C) 2026 Milkeyyy"
 
 	DEVELOPER_NAME: str = "Milkeyyy"
 	DEVELOPER_WEBSITE_URL: str = "https://milkeyyy.com"
