@@ -103,7 +103,7 @@
 			"options": {
 				"query": {
 					"name": "query",
-					"description": "クイズに使用するプレイリストのURL (YouTube, Spotify, SoundCloud, niconico)"
+					"description": "クイズに使用するプレイリストのURL (YouTube, Spotify, SoundCloud)"
 				},
 				"q_count": {
 					"name": "q_count",

@@ -103,7 +103,7 @@
 			"options": {
 				"query": {
 					"name": "query",
-					"description": "URL of the playlist to use for the quiz (YouTube, Spotify, SoundCloud, niconico)"
+					"description": "URL of the playlist to use for the quiz (YouTube, Spotify, SoundCloud)"
 				},
 				"q_count": {
 					"name": "q_count",
