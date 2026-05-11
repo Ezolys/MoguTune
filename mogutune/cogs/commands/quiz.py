@@ -11,6 +11,7 @@ from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.localizations import Localization
 from mogutune.quiz_session import prepare_play, quiz_session_manager
+from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class QuizCommands(discord.Cog):
 	async def load_presets(self, i18n: Localization) -> None:
 		logger.info("プレイリストプリセットを読み込み")
 
-		# データーベースから最新のプリセットを取得して整形する
+		# データベースから最新のプリセットを取得して整形する
 		presets = await DBManager.col_presets.find().to_list(length=100)
 		self.preset_list = presets
 
@@ -60,6 +61,10 @@ class QuizCommands(discord.Cog):
 		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
 		if ctx.value == "":
 			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
+		choice = get_url_autocomplete_choice(ctx.value, str(ctx.interaction.locale) if ctx.interaction else None)
+		if choice is not None:
+			label, value = choice
+			return [discord.OptionChoice(name=label, value=value)]
 		return []
 
 	@commands.message_command()
@@ -130,7 +135,8 @@ class QuizCommands(discord.Cog):
 	async def end(self, ctx: discord.ApplicationContext) -> None:
 		if ctx.guild is None:
 			logger.error("Guild is None")
-			raise Exception("Guild is None")
+			msg = "Guild is None"
+			raise RuntimeError(msg)
 
 		session = quiz_session_manager.get_session(ctx.guild.id)
 		if session:

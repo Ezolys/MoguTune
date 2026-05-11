@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import logging
 import random
 import traceback
@@ -83,7 +84,7 @@ class QuizNextQButtonView(discord.ui.View):
 		self.next_q_button.callback = self.next_q_button_callback
 		self.add_item(self.next_q_button)
 
-	# 解答ボタン
+	# 次の問題ボタン
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
@@ -159,11 +160,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
 		for tr in answer_tracks:
-			# タイトルを生成
-			# YouTube の場合はアーティスト名を含めない
-			_title = tr.title if tr.source == "youtube" else tr.title + " - " + tr.author
-			if len(_title) > 90:
-				_title = _title[:90] + "..."  # 100文字以内に収まるようにする
+			_title = self.session.format_track_title(tr, max_length=90)
 			self.answer_select.options.append(
 				discord.SelectOption(
 					label=_title,
@@ -215,10 +212,8 @@ class QuizAnswerSelectView(discord.ui.View):
 		# 不正解
 		# FIXME: 解答判定時に問題があった場合も None が返ってきて不正解判定になるので、問題があった場合は別の処理を行うようにする
 		if result is None:
-			# タイトルを生成
-			# YouTube の場合はアーティスト名を含めない
 			_track = self.session.get_track_from_uri(interaction.data["values"][0])
-			_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
+			_title = self.session.format_track_title(_track)
 			# メッセージを送信
 			_ = await interaction.response.send_message(
 				embed=EmbedsTemplates.error(
@@ -234,16 +229,18 @@ class QuizAnswerSelectView(discord.ui.View):
 			await asyncio.sleep(1)
 		# 正解
 		else:
-			# タイトルを生成
-			# YouTube の場合はアーティスト名を含めない
 			_track = result
-			_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
-			# 埋め込みメッセージを生成
-			_embed = EmbedsTemplates.success(
-				title=t("view.q.answer_select.correct.title"),
-				description=t("view.q.answer_select.correct.description", interaction.user.mention, _title, _track.uri),
-				icon="✅",
-			).set_image(url=_track.artwork_url)  # ジャケットを設定
+			_title = self.session.format_track_title(_track)
+			_embed = self.session.set_track_artwork(
+				EmbedsTemplates.success(
+					title=t("view.q.answer_select.correct.title"),
+					description=t("view.q.answer_select.correct.description", interaction.user.mention, _title, _track.uri),
+					icon="✅",
+				),
+				_track,
+			)
+			_embed = self.session.set_footer_track_info(_embed, _track)
+
 			# メッセージを送信
 			next_q_button = QuizNextQButtonView(self.session_id, disabled=True)
 			_ = await interaction.response.send_message(
@@ -414,15 +411,16 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# トラックを取得
 		_track = pl_current
-		# タイトルを生成
-		# YouTube の場合はアーティスト名を含めない
-		_title = "Unknown" if _track is None else _track.title if _track.source == "youtube" else _track.title + " - " + _track.author
-		# 埋め込みメッセージを生成
-		_embed = EmbedsTemplates.info(
-			title=t("msg.q.skip.title"),
-			description=t("msg.q.skip.description", _title, _track.uri),
-			icon="⏭️",
-		).set_image(url=_track.artwork_url)  # ジャケットを設定
+		_title = self.session.format_track_title(_track)
+		_embed = self.session.set_track_artwork(
+			EmbedsTemplates.info(
+				title=t("msg.q.skip.title"),
+				description=t("msg.q.skip.description", _title, _track.uri),
+				icon="⏭️",
+			),
+			_track,
+		)
+		_embed = self.session.set_footer_track_info(_embed, _track)
 
 		# 通知メッセージを送信する
 		next_q_button = QuizNextQButtonView(self.session_id, disabled=True)  # 次の問題へ ボタン
@@ -534,6 +532,10 @@ class QuizSession:
 	"""問題のトラック一覧"""
 	q_tracks_count: int = 0
 	"""問題のトラック数"""
+	current_q_track: mafic.Track | None = None
+	"""現在出題しようとしているトラック"""
+	is_skipping_current_q_by_exception: bool = False
+	"""現在の問題を再生例外によってスキップ中かどうか"""
 
 	next_cleanup_messages: list[discord.Message | discord.WebhookMessage] = field(default_factory=list)
 	"""次の問題開始時に削除するメッセージのリスト"""
@@ -548,12 +550,16 @@ class QuizSession:
 
 	is_playing_sfx: bool = False
 	"""SFXを再生しているかどうか"""
+	restore_track_after_sfx: bool = True
+	"""SFX再生後に元のトラックを復帰するかどうか"""
 	original_track_before_sfx: mafic.Track | None = None
 	"""SFX再生前のトラック"""
 	original_position_before_sfx: int = 0
 	"""SFX再生前の再生位置"""
 	was_playing_before_sfx: bool = False
 	"""SFX再生前に再生中だったかどうか"""
+	PLAYBACK_EXCEPTION_NOTICE_SECONDS: int = 4
+	"""再生例外で問題をスキップする際の通知表示時間"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -657,6 +663,98 @@ class QuizSession:
 				return track
 		return None
 
+	@staticmethod
+	def is_same_track(left: mafic.Track | None, right: mafic.Track | None) -> bool:
+		"""同一トラックかどうかを判定する"""
+		if left is None or right is None:
+			return False
+		if left.uri is not None and right.uri is not None:
+			return left.uri == right.uri
+
+		left_identifier = getattr(left, "identifier", None)
+		right_identifier = getattr(right, "identifier", None)
+		if left_identifier is not None and right_identifier is not None:
+			return left_identifier == right_identifier
+
+		return left.title == right.title and left.author == right.author and left.source == right.source
+
+	@staticmethod
+	def format_track_title(track: mafic.Track | None, max_length: int | None = None) -> str:
+		"""表示用の楽曲タイトルを返す"""
+		if track is None:
+			return "Unknown"
+
+		title = track.title if track.source == "youtube" else track.title + " - " + track.author
+		if max_length is not None and len(title) > max_length:
+			return title[:max_length] + "..."
+		return title
+
+	@staticmethod
+	def set_track_artwork(embed: discord.Embed, track: mafic.Track | None) -> discord.Embed:
+		"""トラックのジャケット画像を埋め込みへ設定する"""
+		if track is not None and track.artwork_url is not None:
+			embed.set_image(url=track.artwork_url)
+		return embed
+
+	@staticmethod
+	def set_footer_track_info(embed: discord.Embed, track: mafic.Track | None) -> discord.Embed:
+		"""トラックの追加情報を埋め込みのフッターへ設定する"""
+		if track is not None:
+			text = ""
+			if track.isrc is not None:
+				text += f"ISRC: {track.isrc}\n"
+			text += f"Author: {track.author}\nSource: {track.source}"
+			embed.set_footer(text=text)
+		return embed
+
+	def is_question_track_exception_target(self, track: mafic.Track) -> bool:
+		"""現在の出題トラックに対する再生例外かどうかを返す"""
+		if not self.playing:
+			return False
+		if self.is_playing_sfx:
+			return False
+		if not self.can_answered:
+			return False
+		if self.answering_player is not None:
+			return False
+		if self.is_skipping_current_q_by_exception:
+			return False
+		return self.is_same_track(self.current_q_track, track)
+
+	def clear_current_q_track_state(self) -> None:
+		"""現在の出題トラックに関する状態をリセットする"""
+		self.current_q_track = None
+		self.is_skipping_current_q_by_exception = False
+
+	async def skip_current_q_by_track_exception(self, track: mafic.Track) -> None:
+		"""出題トラックの再生例外時に現在の問題をスキップする"""
+		if self.is_skipping_current_q_by_exception:
+			return
+
+		self.is_skipping_current_q_by_exception = True
+		self.can_answered = False
+		self.answering_player = None
+		self.refresh()
+		self.q_wait_seconds = 0
+
+		try:
+			if self.voice_channel is not None:
+				_embed = self.set_track_artwork(
+					EmbedsTemplates.warning(
+						title=t("msg.q.playback_exception_skip.title"),
+						description=t("msg.q.playback_exception_skip.description", self.format_track_title(track), track.uri or self.query),
+						icon="⚠️",
+					),
+					track,
+				)
+				msg = await self.voice_channel.send(embed=_embed)
+				self.next_cleanup_messages.append(msg)
+			if self.playing:
+				await self.play_sfx(SFX.ERROR, restore=False)
+				await asyncio.sleep(self.PLAYBACK_EXCEPTION_NOTICE_SECONDS)
+		finally:
+			self.NEXT.set()
+
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
 		[player.incorrect_reset() for player in self.players]
@@ -669,10 +767,15 @@ class QuizSession:
 		self.q_original_tracks = []
 		self.q_tracks = []
 		self.q_tracks_count = 0
+		self.clear_current_q_track_state()
 		self.current_q_number = 0
 		self.q_start_time = None
+		self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
+		self.can_answered = False
 		self.answering_player = None
+		self.next_cleanup_messages = []
 		self.owner = None
+		self.restore_track_after_sfx = True
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -694,6 +797,7 @@ class QuizSession:
 
 		try:
 			self.is_playing_sfx = True
+			self.restore_track_after_sfx = restore
 			self.SFX_FINISHED.clear()
 
 			# 元のトラックと再生位置を保存
@@ -748,6 +852,7 @@ class QuizSession:
 
 		finally:
 			self.is_playing_sfx = False
+			self.restore_track_after_sfx = True
 			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
 			if restore and before_can_answered:
 				self.can_answered = True
@@ -834,10 +939,6 @@ class QuizSession:
 					seen_uris.add(track.uri)
 			self.q_original_tracks = unique_tracks
 
-			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
-			self.q_tracks = random.sample(tracks.tracks, len(tracks.tracks))[:q_count]
-			self.q_tracks_count = q_count
-
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
 			if len(self.q_original_tracks) < 2:
 				await self.voice_channel.send(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
@@ -855,6 +956,10 @@ class QuizSession:
 				self.playing = False
 				self.reset()
 				return False
+
+			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
+			self.q_tracks = random.sample(self.q_original_tracks, q_count)
+			self.q_tracks_count = q_count
 
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
@@ -886,7 +991,7 @@ class QuizSession:
 					artwork_url = tracks.plugin_info.get("artworkUrl")
 
 			# 表示するプレイリスト名のテキストを生成 (URLも挿入)
-			playlist_title = playlist_title_prefix + ": [" + tracks.name + "](" + query + ")"
+			playlist_title = playlist_title_prefix + ": [**" + tracks.name + "**](" + query + ")"
 
 			# 埋め込みメッセージを生成
 			start_msg_embed = EmbedsTemplates.info(
@@ -912,6 +1017,8 @@ class QuizSession:
 				logger.debug(f"{i}問目")
 
 				self.current_q_number = i
+				self.current_q_track = q
+				self.is_skipping_current_q_by_exception = False
 
 				# 参加待ちのプレイヤーを参加させる
 				await self.join_queued_players()
@@ -951,7 +1058,8 @@ class QuizSession:
 				# 再生
 				await self.pl.play(q, volume=self.PL_VOLUME)
 				await self.NEXT.wait()  # 待機
-				await self.pl.pause()  # 念の為一時停止
+				if not self.is_skipping_current_q_by_exception:
+					await self.pl.pause()  # 念の為一時停止
 
 				# 解答ができない状態にする
 				self.can_answered = False
@@ -959,6 +1067,7 @@ class QuizSession:
 				self.answering_player = None
 				# 全プレイヤーの不正解フラグをリセット
 				self.refresh()
+				self.clear_current_q_track_state()
 
 				logger.debug("- 再生終了")
 
@@ -1469,6 +1578,24 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 		await session.remove_queue(member.id)
 
 
+# トラック再生例外イベント
+@client.listen()
+async def on_track_exception(event: mafic.TrackExceptionEvent) -> None:
+	assert isinstance(event.player, mafic.Player)
+	guild_id = event.player.guild.id
+	logger.error("トラック再生例外: %s", event.exception)
+	session = quiz_session_manager.get_session(guild_id)
+	if session is None:
+		return
+
+	if not session.is_question_track_exception_target(event.track):
+		return
+
+	logger.warning("問題の再生に失敗したためスキップします: %s", session.format_track_title(event.track))
+	logger.warning("例外: %s", json.dumps(event.exception))
+	await session.skip_current_q_by_track_exception(event.track)
+
+
 # 再生開始時イベント
 @client.listen()
 async def on_track_start(event: mafic.TrackEndEvent):
@@ -1487,17 +1614,16 @@ async def on_track_end(event: mafic.TrackEndEvent):
 	if session is None:
 		return
 
-		# SFXの再生が終了した場合
+	# SFXの再生が終了した場合
 	if session.is_playing_sfx:
 		logger.debug(f"SFX再生終了イベント: {guild_id}")
+		# REPLACED の場合は無視する (original_track の有無に関わらず)
+		if event.reason == mafic.EndReason.REPLACED:
+			logger.debug("- REPLACEDのため無視")
+			return
 		# 元の楽曲の再生を再開
-		if session.original_track_before_sfx:
+		if session.restore_track_after_sfx and session.original_track_before_sfx:
 			try:
-				# REPLACED の場合は無視する
-				if event.reason == mafic.EndReason.REPLACED:
-					logger.debug("- REPLACEDのため無視")
-					return
-
 				# 元の楽曲を復帰
 				await session.pl.play(
 					session.original_track_before_sfx,
@@ -1513,8 +1639,7 @@ async def on_track_end(event: mafic.TrackEndEvent):
 				logger.error("SFX終了後の楽曲復帰に失敗しました")
 				logger.error(traceback.format_exc())
 		else:
-			# 元の楽曲がない = SFX再生前は何も再生していない状態だった
-			logger.debug("- SFX再生前は何も再生していなかったため、復帰しません")
+			logger.debug("- SFX再生後の楽曲復帰は行いません")
 
 		session.SFX_FINISHED.set()
 		return

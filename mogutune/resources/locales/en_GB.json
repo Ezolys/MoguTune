@@ -31,6 +31,18 @@
 		"cmd.play.not_a_playlist_url": "Please specify a playlist URL.",
 		"cmd.play.tracks_fetch_error": "Failed to fetch the playlist. Please try again after a while.\n(If this issue persists, please report it to the developer.)",
 		"cmd.play.query_preset": "Preset",
+		"cmd.play.query_url_label": "{0} ({1})",
+		"cmd.play.query_url_type.playlist": "Playlist",
+		"cmd.play.query_url_type.album": "Album",
+		"cmd.play.query_url_type.artist": "Artist",
+		"cmd.play.query_url_type.track": "Track",
+		"cmd.play.query_url_type.video": "Video",
+		"cmd.play.query_url_type.channel": "Channel",
+		"cmd.play.query_url_type.show": "Show",
+		"cmd.play.query_url_type.episode": "Episode",
+		"cmd.play.query_url_platform.youtube": "YouTube",
+		"cmd.play.query_url_platform.spotify": "Spotify",
+		"cmd.play.query_url_platform.soundcloud": "SoundCloud",
 		"cmd.play.ranking.point": "point",
 		"cmd.play.ranking.points": "points",
 		"cmd.sessions.result.title": "Quiz Session Status",
@@ -86,7 +98,9 @@
 		"msg.q.answer.title": "Answer",
 		"msg.q.answer.description": "Please answer!",
 		"msg.q.skip.title": "Skip",
-		"msg.q.skip.description": "Question skipped.\n\n☑️ Answer: **{0}**\n\n**[🎧 Listen]({1})**"
+		"msg.q.skip.description": "Question skipped.\n\n☑️ Answer: **{0}**\n\n**[🎧 Listen]({1})**",
+		"msg.q.playback_exception_skip.title": "Playback Error",
+		"msg.q.playback_exception_skip.description": "This question will be skipped because the track could not be played.\n\n☑️ Track: **{0}**\n\n**[🎧 Listen]({1})**"
 	},
 	"commands": {
 		"ping": {
@@ -103,7 +117,7 @@
 			"options": {
 				"query": {
 					"name": "query",
-					"description": "URL of the playlist to use for the quiz (YouTube, Spotify, SoundCloud, niconico)"
+					"description": "URL of the playlist to use for the quiz (YouTube, Spotify, SoundCloud)"
 				},
 				"q_count": {
 					"name": "q_count",
