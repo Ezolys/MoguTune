@@ -86,7 +86,9 @@
 		"msg.q.answer.title": "Answer",
 		"msg.q.answer.description": "Please answer!",
 		"msg.q.skip.title": "Skip",
-		"msg.q.skip.description": "Question skipped.\n\n☑️ Answer: **{0}**\n\n**[🎧 Listen]({1})**"
+		"msg.q.skip.description": "Question skipped.\n\n☑️ Answer: **{0}**\n\n**[🎧 Listen]({1})**",
+		"msg.q.playback_exception_skip.title": "Playback Error",
+		"msg.q.playback_exception_skip.description": "This question will be skipped because the track could not be played.\n\n☑️ Track: **{0}**\n\n**[🎧 Listen]({1})**"
 	},
 	"commands": {
 		"ping": {

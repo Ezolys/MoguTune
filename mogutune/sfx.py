@@ -7,3 +7,4 @@ class SFX(Enum):
 	INCORRECT = getenv("SFX_QUIZ_INCORRECT")
 	Q = getenv("SFX_QUIZ_Q")
 	A = getenv("SFX_QUIZ_A")
+	ERROR = getenv("SFX_QUIZ_ERROR")

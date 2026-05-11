@@ -86,7 +86,9 @@
 		"msg.q.answer.title": "解答",
 		"msg.q.answer.description": "解答してください！",
 		"msg.q.skip.title": "スキップ",
-		"msg.q.skip.description": "問題をスキップしました。\n\n☑️ 答え: **{0}**\n\n**[🎧 聴く]({1})**"
+		"msg.q.skip.description": "問題をスキップしました。\n\n☑️ 答え: **{0}**\n\n**[🎧 聴く]({1})**",
+		"msg.q.playback_exception_skip.title": "再生エラー",
+		"msg.q.playback_exception_skip.description": "楽曲を再生できなかったため、この問題をスキップします。\n\n☑️ 対象楽曲: **{0}**\n\n**[🎧 聴く]({1})**"
 	},
 	"commands": {
 		"ping": {
