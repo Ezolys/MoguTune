@@ -558,7 +558,7 @@ class QuizSession:
 	"""SFX再生前の再生位置"""
 	was_playing_before_sfx: bool = False
 	"""SFX再生前に再生中だったかどうか"""
-	PLAYBACK_EXCEPTION_NOTICE_SECONDS: int = 6
+	PLAYBACK_EXCEPTION_NOTICE_SECONDS: int = 4
 	"""再生例外で問題をスキップする際の通知表示時間"""
 
 	async def add_player(self, user_id: int) -> None:
