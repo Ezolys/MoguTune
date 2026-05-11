@@ -886,7 +886,7 @@ class QuizSession:
 					artwork_url = tracks.plugin_info.get("artworkUrl")
 
 			# 表示するプレイリスト名のテキストを生成 (URLも挿入)
-			playlist_title = playlist_title_prefix + ": [" + tracks.name + "](" + query + ")"
+			playlist_title = playlist_title_prefix + ": [**" + tracks.name + "**](" + query + ")"
 
 			# 埋め込みメッセージを生成
 			start_msg_embed = EmbedsTemplates.info(
