@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 COPY main.py /code/main.py
 COPY mogutune/*.py /code/mogutune/
 COPY mogutune/cogs/commands/*.py /code/mogutune/cogs/commands/
+COPY mogutune/quiz/*.py /code/mogutune/quiz/
 COPY mogutune/resources/locales/*.json /code/mogutune/resources/locales/
 COPY pyproject.toml /code/
 
