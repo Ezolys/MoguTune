@@ -27,16 +27,21 @@ python mogutune/check_diff.py
 - パッケージ管理は **uv**。`requirements.txt` は `uv export` で自動生成（手編集禁止）
 - `main.py` は dotenv のロードを試みて失敗しても続行する（本番では compose で環境変数を注入）
 - `mogutune/` 以下のパッケージには `__init__.py` が一部ない（ruff INP001 無視で対応）
+- **モジュール import 時の副作用**: `mogutune/client.py` の import で `setup_logging()` と `App.load_pyproject()` が実行される。`pyproject.toml` が存在しないと `App.load_pyproject()` が失敗する点に注意。
+- ローカル実行には Lavalink サーバーと MongoDB が別途必要（`compose.yml` 参照）
 
 ## アーキテクチャ要点
 
 - **エントリポイント**: `main.py` → `mogutune/client.py:run()` で locale 読込 → Cog 読込 → ローカライズ → Bot 起動
-- **Cog のロード**: `client.load_extensions("mogutune.cogs.commands")` — Cog モジュールは `mogutune/cogs/commands/` 直下に置く
+- **Cog のロード**: `client.load_extensions("mogutune.cogs.commands")` — Cog モジュールは `mogutune/cogs/commands/` 直下に `.py` ファイルとして置く（`cogs/commands/` には `__init__.py` 不要）
 - **DB**: `DBManager` は `on_ready` で非同期接続。全操作は `pymongo.AsyncMongoClient` 経由。コレクション名は `presets` 固定
-- **Lavalink**: mafic を使用。ノード追加は Bot の `__init__` で `self.loop.create_task()` 経由、最大5回・5秒間隔でリトライし、全失敗時は `sys.exit(1)`
+- **Lavalink**: mafic を使用。ノード追加は Bot の `__init__` で `self.loop.create_task()` 経由、最大5回・5秒間隔でリトライし、全失敗時は `sys.exit(1)` と KumaSan error ping
 - **ボイス接続**: `voice_channel.connect(cls=mafic.Player)` — mafic の Player クラスを使う
-- **クイズセッション**: `QuizSessionManager` が guild_id をキーに管理。1ギルドにつき1セッションまで
-- **効果音 (SFX)**: 環境変数で URL またはローカルファイルの絶対パスを指定。未設定の SFX はスキップされる
+- **クイズ**: `mogutune/quiz/` サブパッケージ（manager / session / player / views / prepare / events に分割）。`QuizSessionManager` が guild_id をキーに管理し、1ギルドにつき1セッションまで
+- **プリセット更新**: `on_ready` で1時間おきに `update_presets` タスクが起動し、DB からプリセットを再読込する
+- **効果音 (SFX)**: `mogutune/sfx.py` の `SFX` Enum が環境変数からパスを読み込み。未設定の SFX はスキップされる
+- **サビ検出**: `mogutune/chorus.py` の `YTMostReplayedAPI` が外部 API からサビ再生位置を取得
+- **死活監視**: `mogutune/kumasan.py` の `KumaSan` が Uptime Kuma へ heartbeat を送信。`on_ready`/`__init__` でもエラー時に ping 送信
 
 ## 多言語
 
@@ -48,7 +53,7 @@ python mogutune/check_diff.py
 ## デバッグモード
 
 環境変数 `DEBUG=true` で以下が有効化:
-- `client.debug_guilds` に特定ギルドIDが設定され、コマンド同期が高速化
+- `client.debug_guilds` にハードコードされたギルドID (`client.py:72`) が設定され、コマンド同期が高速化。テスト用ギルドを追加する場合はこのリストを編集する。
 - `DEBUG_GUILD_ID` / `DEBUG_TEXT_CHANNEL_ID` が設定されていれば、内部エラー発生時に UUID7 ベースのエラーコードとトレースバックを Debug チャンネルに投稿
 
 ## デプロイ
