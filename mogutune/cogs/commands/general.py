@@ -11,7 +11,7 @@ from mogutune.app import App
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
-from mogutune.quiz_session import quiz_session_manager
+from mogutune.quiz import quiz_session_manager
 
 logger = logging.getLogger(__name__)
 

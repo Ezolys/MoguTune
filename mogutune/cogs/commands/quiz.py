@@ -10,7 +10,7 @@ from mogutune.db import DBManager
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.localizations import Localization
-from mogutune.quiz_session import prepare_play, quiz_session_manager
+from mogutune.quiz import prepare_play, quiz_session_manager
 from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
