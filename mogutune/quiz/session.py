@@ -75,6 +75,9 @@ class QuizSession:
 	next_cleanup_messages: list[discord.Message | discord.WebhookMessage] = field(default_factory=list)
 	"""次の問題開始時に削除するメッセージのリスト"""
 
+	q_msg: discord.Message | None = None
+	"""解答ボタンなどがくっついているメッセージ"""
+
 	can_answered: bool = False
 	"""解答ができる状態かどうか"""
 
@@ -242,6 +245,23 @@ class QuizSession:
 			embed.set_footer(text=text)
 		return embed
 
+	def _question_embed(self) -> discord.Embed:
+		"""問題表示用の埋め込みを生成する"""
+		return EmbedsTemplates.info(
+			title=t("msg.q.start.title", str(self.current_q_number)),
+			description=t("msg.q.start.description"),
+			icon="❔",
+		)
+
+	async def _edit_q_msg(self, embed: discord.Embed) -> None:
+		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
+		if self.q_msg is None:
+			return
+		try:
+			await self.q_msg.edit(embed=embed)
+		except discord.errors.NotFound:
+			pass
+
 	def is_question_track_exception_target(self, track: mafic.Track) -> bool:
 		"""現在の出題トラックに対する再生例外かどうかを返す"""
 		if not self.playing:
@@ -309,6 +329,7 @@ class QuizSession:
 		self.can_answered = False
 		self.answering_player = None
 		self.next_cleanup_messages = []
+		self.q_msg = None
 		self.owner = None
 		self.restore_track_after_sfx = True
 
@@ -546,6 +567,7 @@ class QuizSession:
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
 				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
 			)
+			self.q_msg = q_msg
 
 			for i, q in enumerate(self.q_tracks, 1):
 				if not self.playing:
@@ -578,8 +600,7 @@ class QuizSession:
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新
-				q_msg.embeds[0].title = "❔ " + t("msg.q.start.title", str(i))
-				await q_msg.edit(embed=q_msg.embeds[0])
+				await q_msg.edit(embed=self._question_embed())
 
 				# SFX
 				await self.play_sfx(SFX.Q)
@@ -788,20 +809,18 @@ class QuizSession:
 		# 全プレイヤーの不正解フラグをリセット
 		self.refresh()
 
-		# 全プレイヤーに解答中メッセージを送信する
-		as_msg = None
-		if self.voice_channel is not None:
-			as_msg = await self.voice_channel.send(
-				embed=EmbedsTemplates.info(
-					title=t("msg.q.answering.title"),
-					description=t(
-						"msg.q.answering.description",
-						pn,
-						answer_time_sec,
-					),
-					icon="💭",
-				)
+		# 解答中メッセージを表示する (解答ボタン付きメッセージの埋め込みを更新)
+		await self._edit_q_msg(
+			EmbedsTemplates.info(
+				title=t("msg.q.answering.title"),
+				description=t(
+					"msg.q.answering.description",
+					pn,
+					answer_time_sec,
+				),
+				icon="💭",
 			)
+		)
 
 		# 解答の選択肢セレクターを送信する
 		_ = await interaction.followup.send(
@@ -834,12 +853,8 @@ class QuizSession:
 				logger.debug("- 再生再開")
 				await self.pl.resume()
 
-		# 解答中メッセージを削除
-		try:
-			if as_msg:
-				await as_msg.delete()
-		except discord.errors.NotFound:
-			pass
+		# 解答中メッセージを問題表示に戻す
+		await self._edit_q_msg(self._question_embed())
 
 		# 部品を有効化
 		# if interaction.view is not None:
