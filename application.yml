@@ -124,7 +124,8 @@ server: # REST and WS server
 lavalink:
   plugins:
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+    #- dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3" # This video requires login. が出て再生できない問題への一時的な対処
     #- dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
 #    - dependency: "com.github.example:example-plugin:1.0.0" # required, the coordinates of your plugin
 #      repository: "https://maven.example.com/releases" # optional, defaults to the Lavalink releases repository by default
