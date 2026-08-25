@@ -8,10 +8,10 @@ from os import getenv
 import discord
 import mafic
 from discord.ext import commands, tasks
+from mogutune_core.db import DBManager
 from pycord.localizer import t
 
 from mogutune.app import App
-from mogutune.db import DBManager
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.kumasan import KumaSan
@@ -195,7 +195,10 @@ async def on_application_command_error(
 @client.listen()
 async def on_ready() -> None:
 	# DBへ接続
-	await DBManager.connect()
+	try:
+		await DBManager.connect()
+	except ConnectionError:
+		sys.exit(1)
 
 	# 内部エラー報告機能の初期化
 	try:

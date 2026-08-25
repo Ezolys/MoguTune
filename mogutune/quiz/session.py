@@ -8,12 +8,16 @@ from os import getenv
 
 import discord
 import mafic
+from mogutune_core import answers, ranking, trackpool
+from mogutune_core.models import is_same_track
+from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.player import QuizPlayer
+from mogutune.quiz.track_adapter import to_core_track, to_core_tracks, to_mafic_tracks
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
@@ -41,12 +45,13 @@ class QuizSession:
 	PL_SFX_VOLUME: int = int(getenv("SFX_VOLUME", "10"))
 	"""プレイヤーで再生するSFXの音量"""
 
-	players: list[QuizPlayer] = field(default_factory=list)
-	"""参加するプレイヤーの一覧"""
-	queue: list[int] = field(default_factory=list)
-	"""参加待ちのプレイヤーのID"""
+	roster: Roster = field(default_factory=Roster)
+	"""参加者 (プレイヤー一覧・参加待ちキュー・主催者) の管理"""
 	playing: bool = False
 	"""クイズが開始されているかどうか"""
+
+	rng: random.Random = field(default_factory=random.Random)
+	"""乱数生成器 (core へ注入する)"""
 
 	owner: QuizPlayer | None = None
 	"""クイズの主催者"""
@@ -101,58 +106,48 @@ class QuizSession:
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
-		if self.is_player_joined(user_id):
+		if self.roster.is_joined(user_id):
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
-		self.players.append(QuizPlayer(user_id))
+		self.roster.add_player(user_id)
 
-	async def remove_player(self, user_id: int) -> None:
-		"""プレイヤーを削除"""
-		if not self.is_player_joined(user_id):
-			return
+	async def remove_player(self, user_id: int) -> RemoveReason:
+		"""プレイヤーを削除する
+
+		終了処理は呼び出し側が RemoveReason を見て行う
+		"""
 		logger.debug(f"プレイヤー削除: {user_id}")
-		self.players = [player for player in self.players if player.id != user_id]
-		# プレイヤーが0人になったらクイズを終了する
-		if len(self.players) == 0:
-			logger.debug("- プレイヤー数0人: クイズ終了")
-			await self.end()
-		# オーナーが退出したらクイズを終了する
-		elif self.owner is not None and self.owner.id == user_id:
-			logger.debug("- オーナー退出: クイズ終了")
-			await self.end()
+		return self.roster.remove_player(user_id)
 
 	async def add_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを追加"""
-		if user_id in self.queue:
+		if user_id in self.roster.queue:
 			return
 		logger.debug(f"参加待ちプレイヤー追加: {user_id}")
-		self.queue.append(user_id)
+		self.roster.add_queue(user_id)
 
 	async def remove_queue(self, user_id: int) -> None:
 		"""参加待ちのプレイヤーを削除"""
-		if user_id not in self.queue:
+		if user_id not in self.roster.queue:
 			return
 		logger.debug(f"参加待ちプレイヤー削除: {user_id}")
-		self.queue.remove(user_id)
+		self.roster.remove_queue(user_id)
 
 	async def join_queued_players(self) -> None:
 		"""参加待ちのプレイヤー全員を参加させる"""
 		logger.debug("参加待ちプレイヤー参加")
-		for user_id in self.queue:
-			logger.debug(f"- {user_id}")
-			await self.add_player(user_id)
-		self.queue = []
+		self.roster.join_queued_players()
 
 	def is_player_joined(self, user_id: int) -> bool:
 		"""プレイヤーが参加しているかどうかを返す"""
-		return user_id in [player.id for player in self.players]
+		return self.roster.is_joined(user_id)
 
 	async def join_player(self, user_id: int) -> None:
 		"""プレイヤーを参加させる
 
 		既にクイズが開始されている場合は順番待ちに追加する
 		"""
-		if not self.is_player_joined(user_id):
+		if not self.roster.is_joined(user_id):
 			if self.playing:
 				await self.add_queue(user_id)
 			else:
@@ -160,10 +155,7 @@ class QuizSession:
 
 	async def get_player(self, user_id: int) -> QuizPlayer | None:
 		"""プレイヤーを取得"""
-		for player in self.players:
-			if player.id == user_id:
-				return player
-		return None
+		return self.roster.get(user_id)
 
 	async def get_answer_tracks(self) -> list[mafic.Track]:
 		"""解答候補のトラック一覧を生成"""
@@ -176,15 +168,10 @@ class QuizSession:
 		if self.pl.current is None:
 			return []
 
-		q_track = self.pl.current
-		# 正解の曲を除いたリストを作成
-		other_tracks = [t for t in self.q_original_tracks if t.uri != q_track.uri]
-		# ダミーの選択肢を4つランダムにサンプリング
-		dummy_tracks = random.sample(other_tracks, 4)
-		# 正解の曲を加えてシャッフル
-		answer_options = dummy_tracks + [q_track]
-		random.shuffle(answer_options)
-		return answer_options
+		# 正解の曲を除いてダミーの選択肢を4つサンプリングし、正解を足してシャッフルする
+		choices = answers.generate_choices(to_core_track(self.pl.current), to_core_tracks(self.q_original_tracks), self.rng)
+		# core.Track を URI で元の mafic.Track へ引き戻す
+		return to_mafic_tracks(choices, self.q_original_tracks)
 
 	def get_current_track(self) -> mafic.Track | None:
 		"""再生中の楽曲を取得する"""
@@ -200,21 +187,6 @@ class QuizSession:
 			if track.uri == uri:
 				return track
 		return None
-
-	@staticmethod
-	def is_same_track(left: mafic.Track | None, right: mafic.Track | None) -> bool:
-		"""同一トラックかどうかを判定する"""
-		if left is None or right is None:
-			return False
-		if left.uri is not None and right.uri is not None:
-			return left.uri == right.uri
-
-		left_identifier = getattr(left, "identifier", None)
-		right_identifier = getattr(right, "identifier", None)
-		if left_identifier is not None and right_identifier is not None:
-			return left_identifier == right_identifier
-
-		return left.title == right.title and left.author == right.author and left.source == right.source
 
 	@staticmethod
 	def format_track_title(track: mafic.Track | None, max_length: int | None = None) -> str:
@@ -274,7 +246,7 @@ class QuizSession:
 			return False
 		if self.is_skipping_current_q_by_exception:
 			return False
-		return self.is_same_track(self.current_q_track, track)
+		return is_same_track(self.current_q_track, track)
 
 	def clear_current_q_track_state(self) -> None:
 		"""現在の出題トラックに関する状態をリセットする"""
@@ -312,12 +284,12 @@ class QuizSession:
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
-		[player.incorrect_reset() for player in self.players]
+		answers.refresh_misses(self.roster)
 
 	def reset(self) -> None:
 		"""クイズセッションをリセット"""
 		# 全プレイヤーのポイントと不正解フラグをリセット
-		[player.reset() for player in self.players]
+		[player.reset() for player in self.roster.players]
 		# 各変数をリセット
 		self.q_original_tracks = []
 		self.q_tracks = []
@@ -331,6 +303,7 @@ class QuizSession:
 		self.next_cleanup_messages = []
 		self.q_msg = None
 		self.owner = None
+		self.roster.owner_id = None
 		self.restore_track_after_sfx = True
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
@@ -483,30 +456,27 @@ class QuizSession:
 
 			# クイズの主催者を設定
 			self.owner = await self.get_player(owner_id)
+			self.roster.owner_id = owner_id
 
 			# トラック一覧
 			self.q_original_tracks = tracks.tracks
-			# 重複したトラックを除く
-			unique_tracks = []
-			seen_uris = set()
-			for track in self.q_original_tracks:
-				if track.uri is None:  # URI が None の楽曲は除く
-					continue
-				if track.uri not in seen_uris:
-					unique_tracks.append(track)
-					seen_uris.add(track.uri)
-			self.q_original_tracks = unique_tracks
+			# 重複したトラックを除く (core で判定し、URI で mafic.Track へ引き戻す)
+			unique_core_tracks = trackpool.dedupe(to_core_tracks(self.q_original_tracks))
+			self.q_original_tracks = to_mafic_tracks(unique_core_tracks, self.q_original_tracks)
+
+			# 出題プールの検証
+			pool_error = trackpool.validate(len(self.q_original_tracks), q_count)
 
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
-			if len(self.q_original_tracks) < 2:
+			if pool_error is trackpool.PoolError.TOO_FEW_TRACKS:
 				await self.voice_channel.send(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
 				# 終了
 				self.playing = False
 				self.reset()
 				return False
 
-			# 有効なトラック数が問題数+1よりも少ない場合はエラーメッセージを返す
-			if len(self.q_original_tracks) < q_count:
+			# 有効なトラック数が問題数 (および選択肢生成に必要な最小数) よりも少ない場合はエラーメッセージを返す
+			if pool_error is trackpool.PoolError.NOT_ENOUGH_TRACKS:
 				await self.voice_channel.send(
 					embed=EmbedsTemplates.error(description=t("msg.q.init.not_enough_song", len(self.q_original_tracks), q_count))
 				)
@@ -516,7 +486,8 @@ class QuizSession:
 				return False
 
 			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
-			self.q_tracks = random.sample(self.q_original_tracks, q_count)
+			core_questions = trackpool.sample_questions(to_core_tracks(self.q_original_tracks), q_count, self.rng)
+			self.q_tracks = to_mafic_tracks(core_questions, self.q_original_tracks)
 			self.q_tracks_count = q_count
 
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
@@ -524,7 +495,7 @@ class QuizSession:
 			logger.debug("- プレイヤー一覧生成")
 			# プレイヤー一覧テキストを生成
 			player_mentions = []
-			for p in self.players:
+			for p in self.roster.players:
 				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
 				if member is not None:
 					if member.mention:
@@ -585,7 +556,7 @@ class QuizSession:
 				# プレイヤー一覧テキストを更新する
 				logger.debug("- プレイヤー一覧更新")
 				player_mentions = []
-				for p in self.players:
+				for p in self.roster.players:
 					member = await self.guild.get_or_fetch(discord.Member, p.id)
 					if member is not None:
 						if member.mention:
@@ -660,41 +631,33 @@ class QuizSession:
 			try:
 				logger.debug("ランキング生成")
 				# ランキングテキストを生成
-				# TODO: ただの一覧ではなく順位をつけて表示するようにする
-				if len(self.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
+				if len(self.roster.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
 					ranking_list = [t("msg.q.end.no_players")]
 				else:
 					ranking_list = []
-					# ポイント順にソート
-					sorted_players = sorted(self.players, key=lambda x: x.point, reverse=True)
-
-					display_rank = 1
-					for i, p in enumerate(sorted_players):
-						# 前の人より点数が低ければ順位を更新 (同点の場合は順位を維持)
-						if i > 0 and p.point < sorted_players[i - 1].point:
-							display_rank = i + 1
-
-						member = await self.guild.get_or_fetch(discord.Member, p.id)
+					# ポイント順にソート (同点同順)
+					for entry in ranking.build_ranking(self.roster.players):
+						member = await self.guild.get_or_fetch(discord.Member, entry.player_id)
 						pn = "Unknown"
 						if member is not None:
 							pn = member.mention or member.display_name
 
-						rank_icon = f"**{display_rank}**"
-						if display_rank == 1:
+						rank_icon = f"**{entry.rank}**"
+						if entry.rank == 1:
 							rank_icon = "🥇"
-						elif display_rank == 2:
+						elif entry.rank == 2:
 							rank_icon = "🥈"
-						elif display_rank == 3:
+						elif entry.rank == 3:
 							rank_icon = "🥉"
 
-						pt = t("cmd.play.ranking.point") if p.point == 1 else t("cmd.play.ranking.points")
-						ranking_list.append(f"{rank_icon} {pn}: **`{p.point}`** {pt}")
+						pt = t("cmd.play.ranking.point") if entry.point == 1 else t("cmd.play.ranking.points")
+						ranking_list.append(f"{rank_icon} {pn}: **`{entry.point}`** {pt}")
 				# 結合
-				ranking = "\n".join(ranking_list)
+				ranking_text = "\n".join(ranking_list)
 
 				# 終了メッセージを送信する
 				await self.voice_channel.send(
-					embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking), icon="🏁"),
+					embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking_text), icon="🏁"),
 					view=QuizReplayButtonView(self.query, q_count),  # 再度プレイボタン
 				)
 			except Exception:
@@ -731,8 +694,16 @@ class QuizSession:
 			)
 			return
 
+		# 早押しの受理判定 (core)
+		answer_state = answers.AnswerState()
+		answer_state.current_track_uri = self.pl.current.uri if self.pl.current is not None else None
+		answer_state.answering_player_id = self.answering_player.id if self.answering_player is not None else None
+		answer_state.can_answer = self.can_answered
+		answer_state.question_started_at = self.q_start_time
+		result = answers.check_raise_hand(answer_state, self.roster, user_id)
+
 		# 再生中ではない場合
-		if self.pl.current is None:
+		if result is answers.RaiseHandError.NOT_PLAYING:
 			await interaction.followup.send(
 				embed=EmbedsTemplates.warning(
 					description=t("msg.q.answering.not_playing.description"),
@@ -742,7 +713,7 @@ class QuizSession:
 			)
 			return
 
-		if self.answering_player is not None:
+		if result is answers.RaiseHandError.ALREADY_ANSWERING:
 			# 解答中のプレイヤー名を取得
 			mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
 			pn = mb.mention if mb is not None else str(self.answering_player.id)
@@ -758,7 +729,7 @@ class QuizSession:
 			)
 			return
 
-		if not self.can_answered:
+		if result is answers.RaiseHandError.CANNOT_ANSWER:
 			# 解答ができない状態の場合はエラーメッセージを送信する
 			await interaction.respond(
 				embed=EmbedsTemplates.warning(
@@ -769,11 +740,8 @@ class QuizSession:
 			)
 			return
 
-		# クリックしたプレイヤーを取得
-		pl = await self.get_player(user_id)
-
-		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
-		if pl is None:
+		if result is answers.RaiseHandError.NOT_JOINED:
+			# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
 			await interaction.followup.send(
 				embed=EmbedsTemplates.error(description=t("view.q.answer_button.not_joined")),
 				ephemeral=True,
@@ -781,8 +749,8 @@ class QuizSession:
 			)
 			return
 
-		# お手つき中のプレイヤーをはじく (プレイヤー数一人の場合ははじかない)
-		if pl.miss and len(self.players) > 1:
+		if result is answers.RaiseHandError.MISS:
+			# お手つき中のプレイヤーをはじく (プレイヤー数一人の場合ははじかない)
 			await interaction.followup.send(
 				embed=EmbedsTemplates.error(description=t("view.q.answer_button.miss")),
 				ephemeral=True,
@@ -791,6 +759,7 @@ class QuizSession:
 			return
 
 		# 解答中プレイヤーを設定
+		pl = result
 		self.answering_player = pl
 
 		# 解答中のプレイヤー名を取得
@@ -869,7 +838,7 @@ class QuizSession:
 		if self.pl.current is None:
 			await DebugLogger.report_internal_error("Session.player.current is None")
 			return None
-		if user_id not in [player.id for player in self.players]:
+		if not self.roster.is_joined(user_id):
 			await DebugLogger.report_internal_error("User is not in players")
 			return None
 
@@ -882,7 +851,7 @@ class QuizSession:
 			self.ANSWERED.set()
 			return None
 
-		if self.pl.current.uri == answer:
+		if answers.is_correct(answer, self.pl.current.uri):
 			logger.debug("- 正解")
 			# 解答ができない状態にする
 			self.can_answered = False
