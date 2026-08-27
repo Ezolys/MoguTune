@@ -103,6 +103,12 @@ class QuizSession:
 	"""SFX再生前に再生中だったかどうか"""
 	PLAYBACK_EXCEPTION_NOTICE_SECONDS: int = 4
 	"""再生例外で問題をスキップする際の通知表示時間"""
+	RESUME_SEEK_BACK_MS: int = 3000
+	"""回答後の再生再開時に巻き戻す時間 (ミリ秒)"""
+	RESUME_SEEK_MIN_POSITION_MS: int = 4000
+	"""巻き戻しを適用する回答開始時再生位置の下限 (ミリ秒) 未満の場合は最初から再生する"""
+	answer_pause_position: int = 0
+	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -305,6 +311,7 @@ class QuizSession:
 		self.owner = None
 		self.roster.owner_id = None
 		self.restore_track_after_sfx = True
+		self.answer_pause_position = 0
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -773,6 +780,7 @@ class QuizSession:
 		# 一時停止する
 		self.ANSWERED.clear()
 		logger.debug("- 一時停止")
+		self.answer_pause_position = self.pl.position
 		await self.pl.pause()
 
 		# 全プレイヤーの不正解フラグをリセット
@@ -818,9 +826,15 @@ class QuizSession:
 			if self.can_answered:
 				# 解答ができる状態にする
 				self.answering_player = None
-				# 再生再開
-				logger.debug("- 再生再開")
-				await self.pl.resume()
+# 再生再開
+			logger.debug("- 再生再開")
+			# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
+			if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
+				resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
+			else:
+				resume_position = 0
+			await self.pl.seek(resume_position)
+			await self.pl.resume()
 
 		# 解答中メッセージを問題表示に戻す
 		await self._edit_q_msg(self._question_embed())
