@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     volumes:
       - '.:/code/logs'
+    expose:
+      - 8765
     environment:
       # Discord Bot Token [Required]
       TOKEN: ${TOKEN:?error}
@@ -25,6 +27,10 @@ services:
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
       LAVALINK_SECURE: ${LAVALINK_SECURE:-false}
       LAVALINK_LABEL: ${LAVALINK_LABEL:-lavalink}
+
+      # Discord Activity Bridge [Required for Activity support]
+      ACTIVITY_BRIDGE_SECRET: ${ACTIVITY_BRIDGE_SECRET}
+      ACTIVITY_BRIDGE_PORT: ${ACTIVITY_BRIDGE_PORT:-8765}
 
       # SFX URL or File Path (Full Path) [Option]
       SFX_QUIZ_CORRECT: ${SFX_QUIZ_CORRECT}

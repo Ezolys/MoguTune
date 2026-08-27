@@ -14,8 +14,13 @@ from mogutune_core.activity_protocol import (
 	AdvanceMessage,
 	AnswerMessage,
 	BridgeUser,
+	ClientRelayMessage,
 	RaiseHandMessage,
+	ServerRelayMessage,
 	StartMessage,
+	StateMessage,
+	bridge_to_bot_adapter,
+	bridge_to_server_adapter,
 )
 from mogutune_core.progression import Action, Mode
 
@@ -225,3 +230,32 @@ async def test_manager_mapping() -> None:
 	manager.forget(100, "inst-x")
 	assert manager.get(100) is None
 	assert manager.guild_of("inst-x") is None
+
+
+def test_bridge_protocol_roundtrip() -> None:
+	"""ブリッジプロトコルの JSON 往復 (シリアライズ → パース)"""
+	message = ClientRelayMessage(type="client", instance_id="inst", user_id=1, message=RaiseHandMessage(type="raise_hand"))
+	raw = message.model_dump_json()
+	parsed = bridge_to_bot_adapter.validate_json(raw)
+	assert parsed == message
+
+	state = ServerRelayMessage(
+		type="message",
+		instance_id="inst",
+		message=StateMessage(
+			type="state",
+			phase="lobby",
+			mode="host",
+			owner_id=None,
+			players=[],
+			q_number=0,
+			q_count=0,
+			current_answerer=None,
+			answer_deadline=None,
+			revealed_track=None,
+			progression={"next": False, "skip": False, "end": False},
+		),
+	)
+	raw2 = state.model_dump_json()
+	parsed2 = bridge_to_server_adapter.validate_json(raw2)
+	assert parsed2 == state

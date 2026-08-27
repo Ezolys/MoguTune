@@ -87,8 +87,10 @@ class ActivityBridge:
 					logger.debug("不正なブリッジメッセージ: %s", raw[:200])
 					continue
 				await self._dispatch(message)
-		except ConnectionClosed:
+		except (ConnectionClosed, asyncio.CancelledError):
 			pass
+		except Exception:
+			logger.warning("ブリッジハンドラが異常終了", exc_info=True)
 		finally:
 			self._ws = None
 			logger.info("Activity ブリッジ切断")
