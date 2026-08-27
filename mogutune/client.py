@@ -231,6 +231,11 @@ async def on_ready() -> None:
 	# プリセットの定期更新開始
 	update_presets.start()
 
+	# Activity ブリッジの起動 (setup_activity 内で一度だけ)
+	from mogutune.activity import setup_activity  # noqa: PLC0415 (循環 import 回避)
+
+	setup_activity(client)
+
 	# 生存確認ループ開始
 	if getenv("UPTIME_KUMA_PUSH_URL", "") != "":
 		send_heartbeat.start()

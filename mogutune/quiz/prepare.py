@@ -64,6 +64,13 @@ async def prepare_play(
 			)
 			return
 
+		# Activity クイズとの排他チェック
+		from mogutune.activity.manager import activity_manager  # noqa: PLC0415 (循環 import 回避)
+
+		if activity_manager.get(guild.id) is not None:
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.already_started", voice_channel.mention)))
+			return
+
 		# セッション数制限チェック
 		max_sessions = int(getenv("MAX_SESSIONS", "0"))
 		if max_sessions > 0 and len(quiz_session_manager.sessions) >= max_sessions:
