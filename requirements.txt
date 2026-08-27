@@ -51,6 +51,8 @@ idna==3.18
     #   yarl
 mafic==2.11.0
     # via mogutune
+mogutune-core @ git+https://github.com/Ezolys/MoguTune-Core.git@7747adfe72b209d352e9ffadb422597a50d68854
+    # via mogutune
 msgspec==0.21.1
     # via py-cord
 multidict==6.7.1
@@ -72,7 +74,9 @@ pycord-localizer==0.1.3
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pymongo==4.17.0
-    # via mogutune
+    # via
+    #   mogutune
+    #   mogutune-core
 pynacl==1.6.2
     # via py-cord
 typing-extensions==4.16.0

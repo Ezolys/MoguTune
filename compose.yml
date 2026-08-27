@@ -37,8 +37,8 @@ services:
       YTMRAPI_SECRET: ${YTMRAPI_SECRET}
 
       # Discord Server ID and Text Channel ID for debugging [Option]
-      DEBUG_GUILD_ID: ${DEBUG_GUILD_ID}
-      DEBUG_TEXT_CHANNEL_ID: ${DEBUG_TEXT_CHANNEL_ID}
+      DEBUG_LOG_GUILD_ID: ${DEBUG_LOG_GUILD_ID}
+      DEBUG_LOG_TEXT_CHANNEL_ID: ${DEBUG_LOG_TEXT_CHANNEL_ID}
 
       # Uptime Kuma Push URL [Option]
       UPTIME_KUMA_PUSH_URL: ${UPTIME_KUMA_PUSH_URL}

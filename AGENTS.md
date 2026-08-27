@@ -15,12 +15,11 @@ ruff format mogutune/ main.py
 # ローカル実行
 python main.py
 
-# ロケール差分チェック
-python mogutune/check_diff.py
+# ロケール差分チェック (core リポジトリのテストで実施)
+# V:\MoguTune-Core で: uv run pytest tests/test_locales.py
 ```
 
-テストフレームワーク・型チェックは未導入。
-※ `check_diff.py` は `resources/locales/` を参照しているが実配置は `mogutune/resources/locales/` のため、現状 FileNotFoundError で失敗する（要修正）。
+テストフレームワーク・型チェックは未導入 (core リポジトリには pytest あり)。
 
 ## Python / 環境
 
@@ -36,10 +35,10 @@ python mogutune/check_diff.py
 
 - **エントリポイント**: `main.py` → `mogutune/client.py:run()` で locale 読込 → Cog 読込 → コマンドのローカライズ → Bot 起動
 - **Cog のロード**: `client.load_extensions("mogutune.cogs.commands")` — Cog モジュールは `mogutune/cogs/commands/` 直下に `.py` ファイルとして置く（`dev.py` / `general.py` / `quiz.py`。`cogs/commands/` には `__init__.py` 不要）
-- **DB**: `DBManager` (`db.py`) は `on_ready` で `connect()`（`DB_URI` / `DB_NAME` 環境変数必須、接続失敗時は `sys.exit(1)`）。全操作は `pymongo.AsyncMongoClient` 経由。コレクション名は `presets` 固定
+- **DB**: `mogutune_core.db.DBManager` (`mogutune-core` パッケージ) を `on_ready` で `connect()`（`DB_URI` / `DB_NAME` 環境変数必須、失敗時は `ConnectionError` 送出 → bot 側で `sys.exit(1)`）。全操作は `pymongo.AsyncMongoClient` 経由。コレクション名は `presets` 固定
 - **Lavalink**: mafic を使用。ノード情報は環境変数 `LAVALINK_HOST` / `LAVALINK_PORT` / `LAVALINK_PASSWORD` / `LAVALINK_SECURE` / `LAVALINK_LABEL` から読み込み。ノード追加は Bot の `__init__` で `self.loop.create_task()` 経由、最大5回・5秒間隔でリトライし、全失敗時は `sys.exit(1)` と KumaSan error ping
 - **ボイス接続**: `voice_channel.connect(cls=mafic.Player)` (`quiz/prepare.py`) — mafic の Player クラスを使う
-- **クイズ**: `mogutune/quiz/` サブパッケージ（manager / session / player / views / prepare / events に分割、`__init__.py` で全公開）。`quiz_session_manager` シングルトンが guild_id をキーに管理し、1ギルドにつき1セッションまで
+- **クイズ**: `mogutune/quiz/` サブパッケージ（manager / session / views / prepare / events / track_adapter に分割、`__init__.py` で全公開。`player.py` は core の再エクスポート）。`quiz_session_manager` シングルトンが guild_id をキーに管理し、1ギルドにつき1セッションまで。**ゲームロジック (Roster / trackpool / answers / ranking) は `mogutune-core` パッケージの純粋ロジックを使用**。`session.py` はオーケストレーション (Discord UI / mafic 再生 / SFX / ロケール写像) のみを担い、`track_adapter.py` が mafic.Track ↔ core.Track の変換を集約する (変換はこの1箇所のみ)
 - **プリセット更新**: `on_ready` で1時間おきに `update_presets` タスクが起動し、Cog `QuizCommands.load_presets()` が DB からプリセットを再読込する
 - **効果音 (SFX)**: `mogutune/sfx.py` の `SFX` Enum が `SFX_QUIZ_{CORRECT,INCORRECT,Q,A,ERROR}` 環境変数からパスを読み込み。未設定の SFX はスキップされる
 - **サビ検出**: `mogutune/chorus.py` の `YTMostReplayedAPI` が `YTMRAPI_URL` / `YTMRAPI_SECRET` の外部 API からサビ再生位置 (ミリ秒) を取得
@@ -54,10 +53,10 @@ python mogutune/check_diff.py
 
 ## 多言語
 
-- ロケールファイル: `mogutune/resources/locales/{ja,en_GB}.json`
+- ロケールファイル: **`mogutune-core` パッケージ内** (`mogutune_core/locales/{ja,en_GB}.json`、`importlib.resources` で読み込み)。単一ソース化のため bot リポジトリには置かない
 - `pycord-localizer` (`consider_user_locale=True`) でユーザー設定を反映
 - 存在しないロケールのリクエストは `en_GB` にフォールバック
-- `check_diff.py` で ja/en_GB 間のキー差分を検出可能（ただし上記の通り現状パス不一致）
+- ja/en_GB 間のキー差分は core リポジトリの `tests/test_locales.py` (pytest) で検出する。キーのリネームは禁止 (追加のみ許可)
 
 ## デバッグモード
 

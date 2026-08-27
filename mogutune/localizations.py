@@ -1,6 +1,6 @@
 import json
 import logging
-from pathlib import Path
+from importlib import resources
 from typing import get_args
 
 from discord import Bot
@@ -26,25 +26,25 @@ class Localization:
 		# 言語ファイルを読み込む
 		logger.info("言語ファイルを読み込み")
 		for lang_code in get_args(Locale):
-			# 言語ファイルのフォルダー
-			lang_file_base_path = "./mogutune/resources/locales"
+			# 言語ファイルのフォルダー (インストール済み core パッケージ内)
+			lang_files = resources.files("mogutune_core") / "locales"
 			# - を _ へ置き換える
 			lang = lang_code.replace("-", "_")
 			# 言語ファイルのパス
-			lang_file_path = Path(lang_file_base_path) / (lang + ".json")
+			lang_file = lang_files / (lang + ".json")
 			# 対象の言語ファイルが存在するかチェック
-			if not Path(lang_file_path).exists():
+			if not lang_file.is_file():
 				# ファイルが存在しない場合は英語 (en_GB) のファイルを読み込むようにする (フォールバック)
 				logger.info("- %s -> en_GB (フォールバック)", lang)
-				lang_file_path = Path(lang_file_base_path) / "en_GB.json"
+				lang_file = lang_files / "en_GB.json"
 			else:
 				logger.info("- %s", lang)
 				# 有効な言語一覧へ追加
 				self.EXISTS_LOCALE_LIST[lang] = lang
 
 			# 翻訳データを読み込む
-			with Path(lang_file_path).open(encoding="utf-8") as lang_file:
-				self.LOCALE_DATA[lang] = json.loads(lang_file.read())
+			with lang_file.open(encoding="utf-8") as lang_file_handle:
+				self.LOCALE_DATA[lang] = json.loads(lang_file_handle.read())
 
 			# 有効な言語一覧の名称を設定する
 			if lang in self.EXISTS_LOCALE_LIST:

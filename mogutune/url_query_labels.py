@@ -1,9 +1,9 @@
 import json
 from functools import cache
-from pathlib import Path
+from importlib import resources
 from urllib.parse import ParseResult, parse_qs, urlencode, urlparse, urlunparse
 
-LOCALES_DIR = Path(__file__).resolve().parent / "resources" / "locales"
+LOCALES_DIR = resources.files("mogutune_core") / "locales"
 DEFAULT_LOCALE = "en_GB"
 LABEL_FORMAT_KEY = "cmd.play.query_url_label"
 PLATFORM_LOCALE_KEYS = {
@@ -37,7 +37,7 @@ def _normalize_locale(locale: str | None) -> str:
 	normalized_locale = locale.replace("-", "_")
 	if normalized_locale.startswith("ja"):
 		return "ja"
-	if not (LOCALES_DIR / f"{normalized_locale}.json").exists():
+	if not (LOCALES_DIR / f"{normalized_locale}.json").is_file():
 		return DEFAULT_LOCALE
 	return normalized_locale
 

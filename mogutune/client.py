@@ -8,10 +8,10 @@ from os import getenv
 import discord
 import mafic
 from discord.ext import commands, tasks
+from mogutune_core.db import DBManager
 from pycord.localizer import t
 
 from mogutune.app import App
-from mogutune.db import DBManager
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.kumasan import KumaSan
@@ -67,9 +67,17 @@ intents = discord.Intents.default()
 intents.guilds = True
 intents.voice_states = True
 client = Bot(intents=intents)
-if getenv("DEBUG", "false") == "true":
+if getenv("DEBUG", "false").lower() == "true":
 	logger.info("デバッグモード有効")
-	client.debug_guilds = [1118692349250392184, 1378181427945930843, 599952022422290442]
+	debug_guild_ids_raw = getenv("DEBUG_GUILD_ID", "")
+	if debug_guild_ids_raw.strip():
+		try:
+			client.debug_guilds = [int(x.strip()) for x in debug_guild_ids_raw.split(",") if x.strip()]
+			logger.info("デバッグギルドID: %s", client.debug_guilds)
+		except ValueError:
+			logger.warning("DEBUG_GUILD_ID の値が不正です: %s", debug_guild_ids_raw)
+	else:
+		logger.warning("DEBUG=true ですが DEBUG_GUILD_ID が未設定のため、グローバルコマンドとして登録されます")
 i18n = Localization(client)
 
 
@@ -195,13 +203,16 @@ async def on_application_command_error(
 @client.listen()
 async def on_ready() -> None:
 	# DBへ接続
-	await DBManager.connect()
+	try:
+		await DBManager.connect()
+	except ConnectionError:
+		sys.exit(1)
 
 	# 内部エラー報告機能の初期化
 	try:
 		logger.info("デバッグ用サーバー/チャンネル取得")
-		debug_gd_id = getenv("DEBUG_GUILD_ID", "")
-		debug_ch_id = getenv("DEBUG_TEXT_CHANNEL_ID", "")
+		debug_gd_id = getenv("DEBUG_LOG_GUILD_ID", "")
+		debug_ch_id = getenv("DEBUG_LOG_TEXT_CHANNEL_ID", "")
 		DebugLogger.debug_guild = client.get_guild(int(debug_gd_id))
 		DebugLogger.debug_channel = await DebugLogger.debug_guild.fetch_channel(debug_ch_id)
 		if DebugLogger.debug_guild:

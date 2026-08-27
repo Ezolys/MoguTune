@@ -10,5 +10,15 @@ wheels/
 
 # Virtual environments
 .venv
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 .env
+
+# SFX assets are not redistributable
+resources/sfx/
+
+# Local dev / not for public
+mogutune/activity/
+tests/

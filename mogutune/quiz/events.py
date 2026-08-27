@@ -4,6 +4,7 @@ import traceback
 
 import discord
 import mafic
+from mogutune_core.roster import RemoveReason
 
 from mogutune.client import client
 from mogutune.quiz.manager import quiz_session_manager
@@ -35,7 +36,13 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 			await quiz_session_manager.end_session(member.guild.id)
 			return
 		# プレイヤーを削除する 場合によってはクイズ終了
-		await session.remove_player(member.id)
+		result = await session.remove_player(member.id)
+		if result == RemoveReason.NO_PLAYERS_LEFT:
+			logger.debug("- プレイヤー数0人: クイズ終了")
+			await session.end()
+		elif result == RemoveReason.OWNER_LEFT:
+			logger.debug("- オーナー退出: クイズ終了")
+			await session.end()
 		await session.remove_queue(member.id)
 
 

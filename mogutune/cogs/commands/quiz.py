@@ -4,9 +4,9 @@ from typing import get_args
 
 import discord
 from discord.ext import commands
+from mogutune_core.db import DBManager
 from pycord.localizer import Locale, t
 
-from mogutune.db import DBManager
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.localizations import Localization
