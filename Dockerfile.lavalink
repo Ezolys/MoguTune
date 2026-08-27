@@ -11,4 +11,4 @@ RUN mkdir -p /opt/Lavalink/plugins && chown -R lavalink:lavalink /opt/Lavalink/p
 USER lavalink
 
 COPY ./application.yml /opt/Lavalink/application.yml
-COPY ./resources/sfx/ /opt/Lavalink/sfx/
+# COPY ./resources/sfx/ /opt/Lavalink/sfx/
