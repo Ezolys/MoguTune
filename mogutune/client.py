@@ -211,8 +211,8 @@ async def on_ready() -> None:
 	# 内部エラー報告機能の初期化
 	try:
 		logger.info("デバッグ用サーバー/チャンネル取得")
-		debug_gd_id = getenv("DEBUG_GUILD_ID", "")
-		debug_ch_id = getenv("DEBUG_TEXT_CHANNEL_ID", "")
+		debug_gd_id = getenv("DEBUG_LOG_GUILD_ID", "")
+		debug_ch_id = getenv("DEBUG_LOG_TEXT_CHANNEL_ID", "")
 		DebugLogger.debug_guild = client.get_guild(int(debug_gd_id))
 		DebugLogger.debug_channel = await DebugLogger.debug_guild.fetch_channel(debug_ch_id)
 		if DebugLogger.debug_guild:
