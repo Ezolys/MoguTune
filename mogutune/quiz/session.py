@@ -511,8 +511,8 @@ class QuizSession:
 						player_mentions.append(member.display_name)
 			player_list_text = "  - " + "\n  - ".join(player_mentions)
 
-			logger.info("Tracks Plugin Info")
-			logger.info(tracks.plugin_info)
+			logger.debug("Tracks Plugin Info")
+			logger.debug(tracks.plugin_info)
 
 			# 表示するプレイリスト (アルバム) のタイトルの種類とジャケットを設定する
 			playlist_title_prefix = t("msg.q.init.description.playlist_type.playlist")
@@ -826,7 +826,7 @@ class QuizSession:
 			if self.can_answered:
 				# 解答ができる状態にする
 				self.answering_player = None
-# 再生再開
+			# 再生再開
 			logger.debug("- 再生再開")
 			# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
 			if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
