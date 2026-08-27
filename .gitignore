@@ -10,5 +10,12 @@ wheels/
 
 # Virtual environments
 .venv
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 .env
+
+# Local dev / not for public
+mogutune/activity/
+tests/
