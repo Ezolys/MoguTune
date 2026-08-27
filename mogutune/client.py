@@ -67,9 +67,17 @@ intents = discord.Intents.default()
 intents.guilds = True
 intents.voice_states = True
 client = Bot(intents=intents)
-if getenv("DEBUG", "false") == "true":
+if getenv("DEBUG", "false").lower() == "true":
 	logger.info("デバッグモード有効")
-	client.debug_guilds = [1118692349250392184, 1378181427945930843, 599952022422290442]
+	debug_guild_ids_raw = getenv("DEBUG_GUILD_ID", "")
+	if debug_guild_ids_raw.strip():
+		try:
+			client.debug_guilds = [int(x.strip()) for x in debug_guild_ids_raw.split(",") if x.strip()]
+			logger.info("デバッグギルドID: %s", client.debug_guilds)
+		except ValueError:
+			logger.warning("DEBUG_GUILD_ID の値が不正です: %s", debug_guild_ids_raw)
+	else:
+		logger.warning("DEBUG=true ですが DEBUG_GUILD_ID が未設定のため、グローバルコマンドとして登録されます")
 i18n = Localization(client)
 
 
