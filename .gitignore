@@ -16,6 +16,9 @@ wheels/
 
 .env
 
+# SFX assets are not redistributable
+resources/sfx/
+
 # Local dev / not for public
 mogutune/activity/
 tests/
