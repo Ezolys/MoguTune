@@ -316,7 +316,7 @@ class QuizSession:
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
 
-		再生中の楽曲を一時停止し、SFXを再生したあと、元の楽曲の再生を再開する
+		再生中の楽曲を一時停止し、SFXを再生する
 		"""
 		if self.is_playing_sfx:
 			logger.warning("SFX再生中止 - 既に別のSFXを再生中です")
@@ -382,6 +382,8 @@ class QuizSession:
 						start_time=self.original_position_before_sfx,
 						volume=self.PL_VOLUME,
 					)
+					if not self.was_playing_before_sfx:
+						await self.pl.pause()
 				except Exception:
 					logger.error("元の楽曲の復帰に失敗しました。")
 					logger.error(traceback.format_exc())
@@ -389,6 +391,7 @@ class QuizSession:
 		finally:
 			self.is_playing_sfx = False
 			self.restore_track_after_sfx = True
+			self.SFX_FINISHED.set()
 			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
 			if restore and before_can_answered:
 				self.can_answered = True

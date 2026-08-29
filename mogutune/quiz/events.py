@@ -56,6 +56,24 @@ async def on_track_exception(event: mafic.TrackExceptionEvent) -> None:
 	if session is None:
 		return
 
+	# SFX再生中の例外は待機を解放して復帰を試みる
+	if session.is_playing_sfx:
+		logger.warning("SFXの再生に失敗しました: %s", json.dumps(event.exception))
+		if session.restore_track_after_sfx and session.original_track_before_sfx:
+			try:
+				await session.pl.play(
+					session.original_track_before_sfx,
+					start_time=session.original_position_before_sfx,
+					volume=session.PL_VOLUME,
+				)
+				if not session.was_playing_before_sfx:
+					await session.pl.pause()
+			except Exception:
+				logger.error("SFX例外後の楽曲復帰に失敗しました")
+				logger.error(traceback.format_exc())
+		session.SFX_FINISHED.set()
+		return
+
 	if not session.is_question_track_exception_target(event.track):
 		return
 
