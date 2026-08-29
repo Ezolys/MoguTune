@@ -316,7 +316,7 @@ class QuizSession:
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
 
-		再生中の楽曲を一時停止し、SFXを再生したあと、元の楽曲の再生を再開する
+		再生中の楽曲を一時停止し、SFXを再生する
 		"""
 		if self.is_playing_sfx:
 			logger.warning("SFX再生中止 - 既に別のSFXを再生中です")
