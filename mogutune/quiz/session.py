@@ -200,12 +200,15 @@ class QuizSession:
 		return None
 
 	@staticmethod
-	def format_track_title(track: mafic.Track | None, max_length: int | None = None) -> str:
+	def format_track_title(track: mafic.Track | None, max_length: int | None = None, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
 		if track is None:
 			return "Unknown"
 
-		title = track.title if track.source == "youtube" else track.title + " - " + track.author
+		# TODO: 解答候補にアーティスト名を含めるかどうかをサーバーごとまたはクイズセッションごとに設定をできるようにして、設定によって表示するかを変える
+		title = track.title if track.source == "youtube" else track.title
+		if with_author and track.author is not None:
+			title += f" - {track.author}"
 		if max_length is not None and len(title) > max_length:
 			return title[:max_length] + "..."
 		return title
@@ -323,7 +326,11 @@ class QuizSession:
 				_embed = self.set_track_artwork(
 					EmbedsTemplates.warning(
 						title=t("msg.q.playback_exception_skip.title"),
-						description=t("msg.q.playback_exception_skip.description", self.format_track_title(track), track.uri or self.query),
+						description=t(
+							"msg.q.playback_exception_skip.description",
+							self.format_track_title(track, with_author=True),
+							track.uri or self.query,
+						),
 						icon="⚠️",
 					),
 					track,
@@ -344,7 +351,7 @@ class QuizSession:
 		self.can_answered = False
 		self.q_wait_seconds = 4
 
-		_title = self.format_track_title(track)
+		_title = self.format_track_title(track, with_author=True)
 		_embed = self.set_track_artwork(
 			EmbedsTemplates.info(
 				title=t("msg.q.timeout.title"),
