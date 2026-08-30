@@ -226,7 +226,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		# 正解
 		else:
 			_track = result
-			_title = self.session.format_track_title(_track)
+			_title = self.session.format_track_title(_track, with_author=True)
 			_embed = self.session.set_track_artwork(
 				EmbedsTemplates.success(
 					title=t("view.q.answer_select.correct.title"),
@@ -407,7 +407,7 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# トラックを取得
 		_track = pl_current
-		_title = self.session.format_track_title(_track)
+		_title = self.session.format_track_title(_track, with_author=True)
 		_embed = self.session.set_track_artwork(
 			EmbedsTemplates.info(
 				title=t("msg.q.skip.title"),
