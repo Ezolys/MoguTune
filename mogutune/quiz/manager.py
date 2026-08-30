@@ -17,10 +17,12 @@ class QuizSessionManager:
 
 	sessions: dict[int, QuizSession] = field(default_factory=dict)
 
-	def create_session(self, guild_id: int, channel_id: int, player: mafic.Player, query: str) -> QuizSession:
+	def create_session(
+		self, guild_id: int, channel_id: int, player: mafic.Player, query: str, text_channel_id: int | None = None
+	) -> QuizSession:
 		"""セッションを新規作成する"""
-		logger.debug(f"セッション新規作成: {guild_id}/{channel_id}")
-		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player, query)
+		logger.debug(f"セッション新規作成: {guild_id}/{channel_id} (text={text_channel_id})")
+		self.sessions[guild_id] = QuizSession(guild_id, channel_id, player, query, text_channel_id=text_channel_id)
 		return self.sessions[guild_id]
 
 	def delete_session(self, guild_id: int) -> None:

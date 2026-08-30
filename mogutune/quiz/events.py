@@ -131,5 +131,9 @@ async def on_track_end(event: mafic.TrackEndEvent):
 		return
 
 	# クイズの楽曲が終了した場合、次の問題へ進む
+	# 誰も正解しないまま再生が終わった場合は正解情報を送信してサビを再生する（スキップと同様）
 	if event.reason == mafic.EndReason.FINISHED:
-		session.NEXT.set()
+		if session.can_answered:
+			await session.reveal_answer_on_timeout(event.track)
+		else:
+			session.NEXT.set()

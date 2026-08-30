@@ -13,9 +13,11 @@ from mogutune_core.models import is_same_track
 from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 
+from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
+from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
 from mogutune.quiz.track_adapter import to_core_track, to_core_tracks, to_mafic_tracks
 from mogutune.sfx import SFX
@@ -38,6 +40,9 @@ class QuizSession:
 
 	query: str
 	"""プレイリストのURL"""
+
+	text_channel_id: int | None = None
+	"""実行元テキストチャンネルID（送信失敗時のフォールバック通知先）"""
 
 	PL_VOLUME: int = int(getenv("MUSIC_VOLUME", "10"))
 	"""プレイヤーで再生する音楽の音量"""
@@ -240,6 +245,49 @@ class QuizSession:
 		except discord.errors.NotFound:
 			pass
 
+	def _get_text_channel(self) -> discord.abc.Messageable | None:
+		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
+		if self.text_channel_id is None:
+			return None
+		if self.guild is None:
+			return None
+		ch = self.guild.get_channel(self.text_channel_id)
+		if ch is None:
+			return None
+		if hasattr(ch, "send"):
+			return ch  # type: ignore[return-value]
+		return None
+
+	async def _send_to_vc(self, **kwargs: object) -> discord.Message | discord.WebhookMessage | None:
+		"""VCテキストチャットへ送信。Forbidden時は実行元テキストチャンネルへフォールバック通知しNoneを返す。"""
+		if self.voice_channel is None:
+			logger.warning("VC送信失敗 - voice_channel is None")
+			return None
+		try:
+			return await self.voice_channel.send(**kwargs)
+		except discord.errors.Forbidden:
+			logger.warning("VCテキストチャット送信失敗 (Forbidden) guild=%s vc=%s", self.guild_id, self.channel_id)
+			try:
+				tc = self._get_text_channel()
+				if tc is not None:
+					await tc.send(embed=EmbedsTemplates.error(description=t("cmd.play.error.send_forbidden_fallback")))
+			except Exception:
+				logger.error("フォールバック通知送信失敗")
+				logger.error(traceback.format_exc())
+			return None
+		except Exception:
+			logger.error("VCテキストチャット送信失敗")
+			logger.error(traceback.format_exc())
+			try:
+				err_code = await DebugLogger.report_internal_error(traceback.format_exc())
+				tc = self._get_text_channel()
+				if tc is not None:
+					await tc.send(embed=EmbedsTemplates.internal_error(error_code=err_code))
+			except Exception:
+				logger.error("内部エラー報告送信失敗")
+				logger.error(traceback.format_exc())
+			return None
+
 	def is_question_track_exception_target(self, track: mafic.Track) -> bool:
 		"""現在の出題トラックに対する再生例外かどうかを返す"""
 		if not self.playing:
@@ -280,13 +328,65 @@ class QuizSession:
 					),
 					track,
 				)
-				msg = await self.voice_channel.send(embed=_embed)
-				self.next_cleanup_messages.append(msg)
+				msg = await self._send_to_vc(embed=_embed)
+				if msg is not None:
+					self.next_cleanup_messages.append(msg)
 			if self.playing:
 				await self.play_sfx(SFX.ERROR, restore=False)
 				await asyncio.sleep(self.PLAYBACK_EXCEPTION_NOTICE_SECONDS)
 		finally:
 			self.NEXT.set()
+
+	async def reveal_answer_on_timeout(self, track: mafic.Track) -> None:
+		"""誰も正解しないまま再生が終わった際に正解情報を表示してサビから再生する (スキップと同様)"""
+		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
+
+		self.can_answered = False
+		self.q_wait_seconds = 4
+
+		_title = self.format_track_title(track)
+		_embed = self.set_track_artwork(
+			EmbedsTemplates.info(
+				title=t("msg.q.timeout.title"),
+				description=t("msg.q.timeout.description", _title, track.uri or self.query),
+				icon="⏰",
+			),
+			track,
+		)
+		_embed = self.set_footer_track_info(_embed, track)
+
+		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
+		msg = await self._send_to_vc(embed=_embed, view=next_q_button)
+		if msg is not None:
+			self.next_cleanup_messages.append(msg)
+
+		_position = 0
+		_uri = await self.resolve_youtube_track_uri(track)
+		if _uri is None:
+			_uri = track.uri
+		if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+			_position = await YTMostReplayedAPI.get_chorus_info(_uri)
+			logger.info(f"Play Position: {_position}")
+			if _position is None:
+				_position = 0
+		logger.debug(f"Resuming track (Timeout): {track.uri} at {_position}")
+		try:
+			await self.pl.play(track, start_time=_position, volume=self.PL_VOLUME)
+		except Exception:
+			logger.error("タイムアップ後の楽曲再生に失敗しました")
+			logger.error(traceback.format_exc())
+			self.NEXT.set()
+			return
+
+		next_q_button.enable_all_items()
+		if msg is not None:
+			try:
+				await msg.edit(view=next_q_button)
+			except discord.errors.NotFound:
+				pass
+			except Exception:
+				logger.error("タイムアップ後のボタン有効化に失敗しました")
+				logger.error(traceback.format_exc())
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
@@ -447,7 +547,7 @@ class QuizSession:
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
 
-	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int, query: str) -> bool | str:
+	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
 		from mogutune.quiz.views import QuizAnswerButtonView, QuizReplayButtonView  # noqa: PLC0415
 
@@ -460,9 +560,46 @@ class QuizSession:
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Guild not found")
 			self.voice_channel = self.guild.get_channel(self.channel_id)
 			if self.voice_channel is None:
+				try:
+					tc = self._get_text_channel()
+					if tc is not None:
+						await tc.send(embed=EmbedsTemplates.error(description=t("cmd.play.error.view_channel_missing")))
+				except Exception:
+					logger.error("view_channel_missing 通知失敗")
+					logger.error(traceback.format_exc())
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Voice Channel not found")
 			if not isinstance(self.voice_channel, discord.VoiceChannel):
+				try:
+					tc = self._get_text_channel()
+					if tc is not None:
+						await tc.send(embed=EmbedsTemplates.error(description=t("cmd.play.error.view_channel_missing")))
+				except Exception:
+					logger.error("view_channel_missing 通知失敗")
+					logger.error(traceback.format_exc())
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
+
+			# 送信権限チェック（VCテキストチャットへの送信可否）
+			try:
+				missing = check_voice_permissions(self.voice_channel)
+				send_missing = [m for m in missing if m in ("send_messages", "embed_links")]
+				if send_missing:
+					descs = [t(f"cmd.play.error.missing_permissions.{m}", self.voice_channel.mention) for m in send_missing]
+					description = "\n".join(descs)
+					try:
+						tc = self._get_text_channel()
+						if tc is not None:
+							await tc.send(embed=EmbedsTemplates.error(description=description))
+						else:
+							logger.warning("送信権限不足だがフォールバック先なし: %s", description)
+					except Exception:
+						logger.error("送信権限不足通知失敗")
+						logger.error(traceback.format_exc())
+					self.playing = False
+					self.reset()
+					return False
+			except Exception:
+				logger.error("送信権限チェック失敗")
+				logger.error(traceback.format_exc())
 
 			# クイズの主催者を設定
 			self.owner = await self.get_player(owner_id)
@@ -479,7 +616,7 @@ class QuizSession:
 
 			# 楽曲数が2曲未満の場合はエラーメッセージを返す
 			if pool_error is trackpool.PoolError.TOO_FEW_TRACKS:
-				await self.voice_channel.send(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
+				await self._send_to_vc(embed=EmbedsTemplates.error(description=t("msg.q.init.must_be_at_least_two_songs")))
 				# 終了
 				self.playing = False
 				self.reset()
@@ -487,7 +624,7 @@ class QuizSession:
 
 			# 有効なトラック数が問題数 (および選択肢生成に必要な最小数) よりも少ない場合はエラーメッセージを返す
 			if pool_error is trackpool.PoolError.NOT_ENOUGH_TRACKS:
-				await self.voice_channel.send(
+				await self._send_to_vc(
 					embed=EmbedsTemplates.error(description=t("msg.q.init.not_enough_song", len(self.q_original_tracks), q_count))
 				)
 				# 終了
@@ -542,12 +679,24 @@ class QuizSession:
 			start_msg_embed.set_thumbnail(url=artwork_url)
 
 			# クイズ開始メッセージを送信
-			start_msg = await self.voice_channel.send(embed=start_msg_embed)
+			start_msg = await self._send_to_vc(embed=start_msg_embed)
+			if start_msg is None:
+				self.playing = False
+				self.reset()
+				return False
 			# 問題開始メッセージを送信
-			q_msg = await self.voice_channel.send(
+			q_msg = await self._send_to_vc(
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
 				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
 			)
+			if q_msg is None:
+				try:
+					await start_msg.delete()
+				except Exception:
+					pass
+				self.playing = False
+				self.reset()
+				return False
 			self.q_msg = q_msg
 
 			for i, q in enumerate(self.q_tracks, 1):
@@ -666,7 +815,7 @@ class QuizSession:
 				ranking_text = "\n".join(ranking_list)
 
 				# 終了メッセージを送信する
-				await self.voice_channel.send(
+				await self._send_to_vc(
 					embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking_text), icon="🏁"),
 					view=QuizReplayButtonView(self.query, q_count),  # 再度プレイボタン
 				)

@@ -11,12 +11,13 @@ from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.manager import quiz_session_manager
+from mogutune.quiz.permissions import check_voice_permissions
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-async def prepare_play(
+async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 	inter: discord.Interaction,
 	user: discord.Member,
 	guild: discord.Guild,
@@ -56,6 +57,19 @@ async def prepare_play(
 
 		voice_channel: discord.VoiceChannel = user.voice.channel
 
+		# 実行元テキストチャンネルID（フォールバック通知先）
+		text_channel_id: int | None = None
+		try:
+			_ch = getattr(inter, "channel", None)
+			if (
+				_ch is not None
+				and not isinstance(_ch, (discord.CategoryChannel, discord.ForumChannel, discord.MediaChannel))
+				and hasattr(_ch, "id")
+			):
+				text_channel_id = _ch.id  # type: ignore[attr-defined]
+		except Exception:
+			text_channel_id = None
+
 		# サーバー内で既にクイズが開始されているかチェック
 		session = quiz_session_manager.get_session(guild.id)
 		if session:
@@ -70,6 +84,18 @@ async def prepare_play(
 			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.limit_reached")))
 			return
 
+		# 事前権限チェック（不足があれば詳細メッセージで中断）
+		try:
+			missing = check_voice_permissions(voice_channel)
+			if missing:
+				descs = [t(f"cmd.play.error.missing_permissions.{m}", voice_channel.mention) for m in missing]
+				description = "- " + "\n- ".join(descs)
+				await msg.edit(embed=EmbedsTemplates.error(description=description))
+				return
+		except Exception:
+			logger.error("事前権限チェック失敗")
+			logger.error(traceback.format_exc())
+
 		# VCへ接続
 		if voice_channel.guild.voice_client is not None:
 			# 既に接続している場合は一度切断する
@@ -78,8 +104,48 @@ async def prepare_play(
 
 		try:
 			player = await voice_channel.connect(cls=mafic.Player)
+		except discord.errors.Forbidden:
+			try:
+				retry_missing = check_voice_permissions(voice_channel)
+			except Exception:
+				retry_missing = []
+			if retry_missing:
+				descs = [t(f"cmd.play.error.missing_permissions.{m}", voice_channel.mention) for m in retry_missing]
+				desc = "- " + "\n- ".join(descs)
+			else:
+				desc = t("cmd.play.error.voice_channel_forbidden", voice_channel.mention)
+			await msg.edit(embed=EmbedsTemplates.error(description=desc))
+			return
+		except discord.errors.NotFound:
+			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.error.view_channel_missing")))
+			return
+		except TimeoutError:
+			try:
+				retry_missing = check_voice_permissions(voice_channel)
+			except Exception:
+				retry_missing = []
+			if retry_missing:
+				descs = [t(f"cmd.play.error.missing_permissions.{m}", voice_channel.mention) for m in retry_missing]
+				desc = "- " + "\n- ".join(descs)
+			elif (
+				voice_channel.user_limit is not None
+				and voice_channel.user_limit != 0
+				and len(voice_channel.members) >= voice_channel.user_limit
+			):
+				desc = t("cmd.play.error.voice_channel_full", voice_channel.mention)
+			else:
+				desc = t("cmd.play.cannot_connect_voice_channel")
+			await msg.edit(embed=EmbedsTemplates.error(description=desc))
+			return
 		except Exception:
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
+			if (
+				voice_channel.user_limit is not None
+				and voice_channel.user_limit != 0
+				and len(voice_channel.members) >= voice_channel.user_limit
+			):
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.error.voice_channel_full", voice_channel.mention)))
+			else:
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
 			return
 
 		# 検索タイプ
@@ -118,7 +184,7 @@ async def prepare_play(
 			return
 
 		# クイズセッションを新規作成
-		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query)
+		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query, text_channel_id=text_channel_id)
 		bot_id = client.user.id if client.user else 0
 		# VCに参加しているユーザーをプレイヤーとして追加する
 		for u in voice_channel.voice_states:  # .members を使うと正しくメンバー一覧を取得できない
