@@ -13,6 +13,7 @@ from mogutune_core.models import is_same_track
 from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 
+from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
@@ -335,6 +336,57 @@ class QuizSession:
 				await asyncio.sleep(self.PLAYBACK_EXCEPTION_NOTICE_SECONDS)
 		finally:
 			self.NEXT.set()
+
+	async def reveal_answer_on_timeout(self, track: mafic.Track) -> None:
+		"""誰も正解しないまま再生が終わった際に正解情報を表示してサビから再生する (スキップと同様)"""
+		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
+
+		self.can_answered = False
+		self.q_wait_seconds = 4
+
+		_title = self.format_track_title(track)
+		_embed = self.set_track_artwork(
+			EmbedsTemplates.info(
+				title=t("msg.q.timeout.title"),
+				description=t("msg.q.timeout.description", _title, track.uri or self.query),
+				icon="⏰",
+			),
+			track,
+		)
+		_embed = self.set_footer_track_info(_embed, track)
+
+		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
+		msg = await self._send_to_vc(embed=_embed, view=next_q_button)
+		if msg is not None:
+			self.next_cleanup_messages.append(msg)
+
+		_position = 0
+		_uri = await self.resolve_youtube_track_uri(track)
+		if _uri is None:
+			_uri = track.uri
+		if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+			_position = await YTMostReplayedAPI.get_chorus_info(_uri)
+			logger.info(f"Play Position: {_position}")
+			if _position is None:
+				_position = 0
+		logger.debug(f"Resuming track (Timeout): {track.uri} at {_position}")
+		try:
+			await self.pl.play(track, start_time=_position, volume=self.PL_VOLUME)
+		except Exception:
+			logger.error("タイムアップ後の楽曲再生に失敗しました")
+			logger.error(traceback.format_exc())
+			self.NEXT.set()
+			return
+
+		next_q_button.enable_all_items()
+		if msg is not None:
+			try:
+				await msg.edit(view=next_q_button)
+			except discord.errors.NotFound:
+				pass
+			except Exception:
+				logger.error("タイムアップ後のボタン有効化に失敗しました")
+				logger.error(traceback.format_exc())
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
