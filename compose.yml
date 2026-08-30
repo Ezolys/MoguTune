@@ -127,6 +127,7 @@ services:
 
     volumes:
       - 'lavalink-plugins:/opt/Lavalink/plugins'
+      - 'lavalink-sfx:/opt/Lavalink/sfx'
     expose:
       - ${SERVER_PORT:-2333}
     ports:
