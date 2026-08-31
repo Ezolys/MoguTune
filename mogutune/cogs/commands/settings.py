@@ -58,7 +58,11 @@ class SettingsCommands(discord.Cog):
 	@settings.command(name="set")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
-	async def set_settings(self, ctx: discord.ApplicationContext) -> None:
+	async def set_settings(
+		self,
+		ctx: discord.ApplicationContext,
+		artist_in_answers: discord.Option(bool, required=False),  # pyright: ignore[reportInvalidTypeForm]
+	) -> None:
 		"""設定を変更する"""
 		if not dataclasses.fields(GuildSettings):
 			await ctx.respond(
@@ -70,9 +74,29 @@ class SettingsCommands(discord.Cog):
 				ephemeral=True,
 			)
 			return
+
+		kwargs: dict[str, object] = {}
+		if artist_in_answers is not None:
+			kwargs["artist_in_answers"] = artist_in_answers
+		if not kwargs:
+			await ctx.respond(
+				embed=EmbedsTemplates.warning(description=t("cmd.settings.set.no_options")),
+				ephemeral=True,
+			)
+			return
+
+		try:
+			settings = await guild_settings_manager.set(ctx.guild_id, **kwargs)
+		except ValueError as e:
+			await ctx.respond(embed=EmbedsTemplates.error(description=str(e)), ephemeral=True)
+			return
+
 		await ctx.respond(
-			embed=EmbedsTemplates.warning(description=t("cmd.settings.set.no_options")),
-			ephemeral=True,
+			embed=EmbedsTemplates.success(
+				title=t("cmd.settings.set.updated"),
+				description="\n".join(self._format_setting(f, settings) for f in dataclasses.fields(GuildSettings)),
+				icon="⚙️",
+			)
 		)
 
 	@staticmethod

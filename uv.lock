@@ -522,7 +522,7 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mafic", specifier = ">=2.11.0" },
-    { name = "mogutune-core", git = "https://github.com/Ezolys/MoguTune-Core.git?rev=b1938303653c3ed3e5d8f3eb56f56d6aa50f0485" },
+    { name = "mogutune-core", git = "https://github.com/Ezolys/MoguTune-Core.git?rev=2407029365f6a643f5b03f3f8ab84390a0903094" },
     { name = "py-cord", extras = ["speed", "voice"], specifier = ">=2.8.1" },
     { name = "pycord-localizer", specifier = ">=0.1.3" },
     { name = "pymongo", specifier = ">=4.17.0" },
@@ -538,7 +538,7 @@ dev = [
 [[package]]
 name = "mogutune-core"
 version = "0.1.0"
-source = { git = "https://github.com/Ezolys/MoguTune-Core.git?rev=b1938303653c3ed3e5d8f3eb56f56d6aa50f0485#b1938303653c3ed3e5d8f3eb56f56d6aa50f0485" }
+source = { git = "https://github.com/Ezolys/MoguTune-Core.git?rev=2407029365f6a643f5b03f3f8ab84390a0903094#2407029365f6a643f5b03f3f8ab84390a0903094" }
 dependencies = [
     { name = "pymongo" },
 ]

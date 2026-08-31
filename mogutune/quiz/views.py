@@ -138,7 +138,7 @@ class QuizNextQButtonView(discord.ui.View):
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *args, **kwargs) -> None:
+	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], with_author: bool = False, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 
 		self.session_id = session_id
@@ -156,7 +156,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
 		for tr in answer_tracks:
-			_title = self.session.format_track_title(tr, max_length=90)
+			_title = self.session.format_track_title(tr, max_length=90, with_author=with_author)
 			self.answer_select.options.append(
 				discord.SelectOption(
 					label=_title,

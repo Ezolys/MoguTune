@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class GuildSettings:
-	"""ギルドごとのクイズ設定 (項目は後続 Issue で追加)"""
+	"""ギルドごとのクイズ設定"""
+
+	artist_in_answers: bool = False
+	"""解答候補にアーティスト名を含めるか"""
 
 	@classmethod
 	def from_doc(cls, doc: dict | None) -> GuildSettings:
@@ -59,6 +62,7 @@ guild_settings_manager = GuildSettingsManager()
 
 if __name__ == "__main__":
 	# from_doc の純粋ロジックの自己チェック
-	assert GuildSettings.from_doc(None) == GuildSettings()  # noqa: S101
-	assert GuildSettings.from_doc({"_id": 123, "unknown": True}) == GuildSettings()  # noqa: S101
+	assert GuildSettings.from_doc(None).artist_in_answers is False  # noqa: S101
+	assert GuildSettings.from_doc({"_id": 123, "artist_in_answers": True, "unknown": 1}).artist_in_answers is True  # noqa: S101
+	assert GuildSettings.from_doc({"artist_in_answers": "x"}).artist_in_answers == "x"  # noqa: S101
 	print("settings self-check passed")  # noqa: T201

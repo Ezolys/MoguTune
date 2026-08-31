@@ -20,6 +20,7 @@ from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
 from mogutune.quiz.track_adapter import to_core_track, to_core_tracks, to_mafic_tracks
+from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
@@ -205,7 +206,6 @@ class QuizSession:
 		if track is None:
 			return "Unknown"
 
-		# TODO: 解答候補にアーティスト名を含めるかどうかをサーバーごとまたはクイズセッションごとに設定をできるようにして、設定によって表示するかを変える
 		title = track.title if track.source == "youtube" else track.title
 		if with_author and track.author is not None:
 			title += f" - {track.author}"
@@ -959,9 +959,10 @@ class QuizSession:
 		)
 
 		# 解答の選択肢セレクターを送信する
+		settings = await guild_settings_manager.get(self.guild_id)
 		_ = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
-			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks()),
+			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks(), with_author=settings.artist_in_answers),
 			delete_after=5,  # 5秒後に自動削除
 			ephemeral=True,
 			wait=True,
