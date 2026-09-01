@@ -143,8 +143,8 @@ class QuizNextQButtonView(discord.ui.View):
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], with_author: bool = False, *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
+	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *, with_author: bool = False, **kwargs) -> None:
+		super().__init__(**kwargs)
 
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)

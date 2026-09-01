@@ -5,7 +5,7 @@ import logging
 from importlib import resources
 from typing import get_args
 
-from discord import Bot, utils
+from discord import Bot, SlashCommandGroup, utils
 from pycord.localizer import I18n, Locale
 from pycord.localizer.i18n.choice import ChoiceLocalizer
 from pycord.localizer.utils import add_localization
@@ -76,10 +76,10 @@ class Localization:
 			# Discord のロケール形式へ正規化する (en_GB -> en-GB)
 			locale = lang.replace("_", "-")
 			for key, data in self.LOCALE_DATA[lang].get("commands", {}).items():
-				# キーに空白がないものはコマンドグループ
+				# キーに空白がないものはコマンドグループ (通常コマンドは localize_commands() が処理済み)
 				if " " not in key:
 					group = utils.get(self.client.pending_application_commands, qualified_name=key)
-					if group is None:
+					if not isinstance(group, SlashCommandGroup):
 						continue
 					self._apply_name_description(group, locale, data)
 					continue

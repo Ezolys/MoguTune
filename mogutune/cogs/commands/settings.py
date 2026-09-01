@@ -30,6 +30,8 @@ class SettingsCommands(discord.Cog):
 	@commands.cooldown(2, 5)
 	async def show(self, ctx: discord.ApplicationContext) -> None:
 		"""現在の設定を表示する"""
+		# ギルド設定のみを対象とする (guild_only により実行時は必ず int)
+		assert ctx.guild_id is not None  # noqa: S101
 		try:
 			settings = await guild_settings_manager.get(ctx.guild_id)
 			fields = dataclasses.fields(GuildSettings)
@@ -64,6 +66,8 @@ class SettingsCommands(discord.Cog):
 		artist_in_answers: discord.Option(bool, required=False),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
 		"""設定を変更する"""
+		# ギルド設定のみを対象とする (guild_only により実行時は必ず int)
+		assert ctx.guild_id is not None  # noqa: S101
 		if not dataclasses.fields(GuildSettings):
 			await ctx.respond(
 				embed=EmbedsTemplates.info(
@@ -90,6 +94,13 @@ class SettingsCommands(discord.Cog):
 		except ValueError as e:
 			await ctx.respond(embed=EmbedsTemplates.error(description=str(e)), ephemeral=True)
 			return
+		except Exception:
+			logger.exception("設定変更エラー")
+			await ctx.respond(
+				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
+				ephemeral=True,
+			)
+			return
 
 		await ctx.respond(
 			embed=EmbedsTemplates.success(
@@ -104,7 +115,7 @@ class SettingsCommands(discord.Cog):
 		"""設定項目の表示行を生成する"""
 		value = getattr(settings, field.name)
 		label = str(value)
-		if field.type is bool:
+		if isinstance(value, bool):
 			label = t("cmd.settings.value.enabled") if value else t("cmd.settings.value.disabled")
 		return f"**{t(f'cmd.settings.item.{field.name}')}**: {label}"
 

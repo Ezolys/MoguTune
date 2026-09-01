@@ -202,7 +202,7 @@ class QuizSession:
 		return None
 
 	@staticmethod
-	def format_track_title(track: mafic.Track | None, max_length: int | None = None, with_author: bool = False) -> str:
+	def format_track_title(track: mafic.Track | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
 		if track is None:
 			return "Unknown"
