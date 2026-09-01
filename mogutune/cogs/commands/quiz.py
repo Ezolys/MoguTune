@@ -15,6 +15,9 @@ from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
 
+AUTOCOMPLETE_LABEL_MAX = 100
+"""オートコンプリートの選択肢ラベルの最大文字数"""
+
 
 class QuizCommands(discord.Cog):
 	def __init__(self, bot: discord.Bot) -> None:
@@ -25,6 +28,7 @@ class QuizCommands(discord.Cog):
 
 	async def load_presets(self, i18n: Localization) -> None:
 		logger.info("プレイリストプリセットを読み込み")
+		self.i18n = i18n
 
 		# データベースから最新のプリセットを取得して整形する
 		presets = await DBManager.col_presets.find().to_list(length=100)
@@ -56,11 +60,26 @@ class QuizCommands(discord.Cog):
 					)
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
-		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""
+		"""プレイリストのプリセットとサーバーのプレイリストをDiscordのコマンドオプションの選択肢として取得する"""
 		# 入力内容が0文字の場合のみ一覧を返す
 		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
 		if ctx.value == "":
-			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
+			# キャッシュのリストを直接変更しないようコピーしてからプレイリストを追加する
+			choices = list(self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"]))
+			# サーバーに保存されたプレイリストを追加する (value は `playlist:<id>` 形式)
+			guild_id = ctx.interaction.guild_id
+			if guild_id is not None:
+				docs = await DBManager.col_playlists.find({"guild_id": guild_id}).to_list(length=100)
+				lang = str(ctx.interaction.locale) if ctx.interaction.locale else "en-GB"
+				for info in docs:
+					name = info.get("name", "")
+					desc = info.get("description", "")
+					title_desc = f"{name} | {desc}" if isinstance(desc, str) and desc != "" else name
+					label = f"[{self.i18n.translate(text='cmd.play.query_playlist', lang=lang)}] " + title_desc
+					if len(label) > AUTOCOMPLETE_LABEL_MAX:
+						label = label[:AUTOCOMPLETE_LABEL_MAX]
+					choices.append(discord.OptionChoice(name=label, value="playlist:" + str(info.get("_id", ""))))
+			return choices
 		choice = get_url_autocomplete_choice(ctx.value, str(ctx.interaction.locale) if ctx.interaction else None)
 		if choice is not None:
 			label, value = choice

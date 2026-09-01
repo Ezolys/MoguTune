@@ -35,7 +35,7 @@ python main.py
 
 - **エントリポイント**: `main.py` → `mogutune/client.py:run()` で locale 読込 → Cog 読込 → コマンドのローカライズ → Bot 起動
 - **Cog のロード**: `client.load_extensions("mogutune.cogs.commands")` — Cog モジュールは `mogutune/cogs/commands/` 直下に `.py` ファイルとして置く（`dev.py` / `general.py` / `quiz.py`。`cogs/commands/` には `__init__.py` 不要）
-- **DB**: `mogutune_core.db.DBManager` (`mogutune-core` パッケージ) を `on_ready` で `connect()`（`DB_URI` / `DB_NAME` 環境変数必須、失敗時は `ConnectionError` 送出 → bot 側で `sys.exit(1)`）。全操作は `pymongo.AsyncMongoClient` 経由。コレクション名は `presets` 固定
+- **DB**: `mogutune_core.db.DBManager` (`mogutune-core` パッケージ) を `on_ready` で `connect()`（`DB_URI` / `DB_NAME` 環境変数必須、失敗時は `ConnectionError` 送出 → bot 側で `sys.exit(1)`）。全操作は `pymongo.AsyncMongoClient` 経由。コレクションは `presets` / `guild_settings` / `playlists` (`playlists` は `/playlist` コマンドで管理するサーバーごとのプレイリスト)
 - **Lavalink**: mafic を使用。ノード情報は環境変数 `LAVALINK_HOST` / `LAVALINK_PORT` / `LAVALINK_PASSWORD` / `LAVALINK_SECURE` / `LAVALINK_LABEL` から読み込み。ノード追加は Bot の `__init__` で `self.loop.create_task()` 経由、最大5回・5秒間隔でリトライし、全失敗時は `sys.exit(1)` と KumaSan error ping
 - **ボイス接続**: `voice_channel.connect(cls=mafic.Player)` (`quiz/prepare.py`) — mafic の Player クラスを使う
 - **クイズ**: `mogutune/quiz/` サブパッケージ（manager / session / views / prepare / events / track_adapter に分割、`__init__.py` で全公開。`player.py` は core の再エクスポート）。`quiz_session_manager` シングルトンが guild_id をキーに管理し、1ギルドにつき1セッションまで。**ゲームロジック (Roster / trackpool / answers / ranking) は `mogutune-core` パッケージの純粋ロジックを使用**。`session.py` はオーケストレーション (Discord UI / mafic 再生 / SFX / ロケール写像) のみを担い、`track_adapter.py` が mafic.Track ↔ core.Track の変換を集約する (変換はこの1箇所のみ)

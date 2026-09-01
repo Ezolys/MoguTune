@@ -20,7 +20,7 @@ from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
-from mogutune.quiz.track_adapter import to_core_track, to_core_tracks, to_mafic_tracks
+from mogutune.quiz.track_adapter import TrackCollection, to_core_track, to_core_tracks, to_mafic_tracks
 from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
 
@@ -559,7 +559,7 @@ class QuizSession:
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
 
-	async def play(self, tracks: mafic.Playlist, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
+	async def play(self, tracks: TrackCollection, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
 		from mogutune.quiz.views import QuizAnswerButtonView, QuizReplayButtonView  # noqa: PLC0415
 
@@ -678,8 +678,11 @@ class QuizSession:
 					# ジャケットを取得
 					artwork_url = tracks.plugin_info.get("artworkUrl")
 
-			# 表示するプレイリスト名のテキストを生成 (URLも挿入)
-			playlist_title = playlist_title_prefix + ": [**" + tracks.name + "**](" + query + ")"
+			# 表示するプレイリスト名のテキストを生成 (URLの場合はリンクにする)
+			if query.startswith("http"):
+				playlist_title = playlist_title_prefix + ": [**" + tracks.name + "**](" + query + ")"
+			else:
+				playlist_title = playlist_title_prefix + ": **" + tracks.name + "**"
 
 			# 埋め込みメッセージを生成
 			start_msg_embed = EmbedsTemplates.info(

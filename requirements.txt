@@ -51,7 +51,7 @@ idna==3.18
     #   yarl
 mafic==2.11.0
     # via mogutune
-mogutune-core @ git+https://github.com/Ezolys/MoguTune-Core.git@f3dd1a717c3635d038d010fd8ccb4c84a861c03e
+mogutune-core @ git+https://github.com/Ezolys/MoguTune-Core.git@0a1a7e327924cd03eca025040886b211177c65bc
     # via mogutune
 msgspec==0.21.1
     # via py-cord

@@ -1,5 +1,18 @@
+# Copyright (c) 2026 Milkeyyy
+
+from dataclasses import dataclass
+
 from mafic import Track as MaficTrack
 from mogutune_core.models import Track as CoreTrack
+
+
+@dataclass
+class TrackCollection:
+	"""session.play が受け取る楽曲コンテナ (mafic.Playlist / DBプレイリスト共通)"""
+
+	tracks: list[MaficTrack]
+	name: str
+	plugin_info: dict | None = None
 
 
 def to_core_track(track: MaficTrack) -> CoreTrack:
@@ -36,3 +49,15 @@ def to_mafic_track(core_track: CoreTrack, source_tracks: list[MaficTrack]) -> Ma
 def to_mafic_tracks(core_tracks: list[CoreTrack], source_tracks: list[MaficTrack]) -> list[MaficTrack]:
 	"""core.Track の一覧を URI で元の mafic.Track の一覧へ引き戻す"""
 	return [t for t in (to_mafic_track(c, source_tracks) for c in core_tracks) if t is not None]
+
+
+def to_stored_track_dict(track: MaficTrack) -> dict:
+	"""mafic.Track を DB の楽曲サブドキュメントへ変換する (管理用メタデータのみ)"""
+	core = to_core_track(track)
+	return {
+		"uri": core.uri,
+		"title": core.title,
+		"author": core.author,
+		"isrc": core.isrc,
+		"chorus_ms": None,
+	}

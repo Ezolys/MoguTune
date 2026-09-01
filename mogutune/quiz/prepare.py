@@ -5,13 +5,16 @@ from os import getenv
 
 import discord
 import mafic
+from mogutune_core.db import DBManager
 from pycord.localizer import t
 
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
+from mogutune.playlists import Playlist
 from mogutune.quiz.manager import quiz_session_manager
 from mogutune.quiz.permissions import check_voice_permissions
+from mogutune.quiz.track_adapter import TrackCollection
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -152,36 +155,88 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 		search_type = mafic.SearchType.YOUTUBE_MUSIC
 		# search_type = mafic.SearchType[search_type]
 
-		# プレイリストを検索
-		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
-		try:
-			tracks = await player.fetch_tracks(query, search_type)
-		except Exception:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(
-				embed=EmbedsTemplates.internal_error(
-					description=t("cmd.play.tracks_fetch_error"),
-					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
-				)
-			)
-			return
+		# 楽曲コンテナ (URLプレイリスト / DBプレイリスト共通)
+		tracks: TrackCollection | None = None
 
-		# プレイリスト (楽曲) が見つからない場合
-		if not tracks:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
-			return
-		# 指定されたクエリーがプレイリストではない場合
-		if isinstance(tracks, list):
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
-			return
+		if query.startswith("playlist:"):
+			# DB に保存されたプレイリストを読み込む
+			playlist_id = query[len("playlist:") :]
+			doc = await DBManager.col_playlists.find_one({"_id": playlist_id, "guild_id": guild.id})
+			if doc is None:
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
+				return
+			playlist = Playlist.from_doc(doc)
+			if playlist is None:
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
+				return
+
+			# 各楽曲を再検索して mafic.Track を再構築する (取得失敗した楽曲はスキップ)
+			semaphore = asyncio.Semaphore(10)
+
+			async def fetch_playlist_track(uri: str) -> mafic.Track | None:
+				async with semaphore:
+					try:
+						result = await player.fetch_tracks(uri, search_type)
+					except Exception:
+						logger.exception("プレイリストの楽曲取得失敗: %s", uri)
+						return None
+					if not isinstance(result, list) or not result:
+						logger.warning("プレイリストの楽曲が見つかりません: %s", uri)
+						return None
+					return next((t for t in result if t.uri == uri), result[0])
+
+			# ponytail: 全曲を並列再検索 (上限500曲)。開始が数十秒かかる場合は上限引き下げか track_id 保存で緩和する
+			playlist_tracks = [t for t in await asyncio.gather(*(fetch_playlist_track(t.uri) for t in playlist.tracks)) if t is not None]
+			tracks = TrackCollection(tracks=playlist_tracks, name=playlist.name, plugin_info=None)
+			if not tracks.tracks:
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+				return
+		else:
+			# プレイリストを検索
+			logger.debug(f"プレイリスト検索 - {search_type}: {query}")
+			try:
+				playlist_result = await player.fetch_tracks(query, search_type)
+			except Exception:
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(
+					embed=EmbedsTemplates.internal_error(
+						description=t("cmd.play.tracks_fetch_error"),
+						error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+					)
+				)
+				return
+
+			# プレイリスト (楽曲) が見つからない場合
+			if not playlist_result:
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+				return
+			# 指定されたクエリーがプレイリストではない場合
+			if isinstance(playlist_result, list):
+				if voice_channel.guild.voice_client:
+					# 切断する
+					await voice_channel.guild.voice_client.disconnect()
+				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
+				return
+
+			tracks = TrackCollection(
+				tracks=playlist_result.tracks,
+				name=playlist_result.name,
+				plugin_info=playlist_result.plugin_info,
+			)
 
 		# クイズセッションを新規作成
 		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query, text_channel_id=text_channel_id)
