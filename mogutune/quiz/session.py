@@ -8,6 +8,7 @@ from os import getenv
 
 import discord
 import mafic
+from discord.utils import MISSING
 from mogutune_core import answers, ranking, trackpool
 from mogutune_core.models import is_same_track
 from mogutune_core.roster import RemoveReason, Roster
@@ -239,12 +240,21 @@ class QuizSession:
 			icon="❔",
 		)
 
-	async def _edit_q_msg(self, embed: discord.Embed) -> None:
+	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
 		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
 		if self.q_msg is None:
 			return
 		try:
-			await self.q_msg.edit(embed=embed)
+			await self.q_msg.edit(embed=embed, view=view)
+		except discord.errors.NotFound:
+			pass
+
+	async def _edit_q_msg_view(self, view: discord.ui.View | None = MISSING) -> None:
+		"""q_msg の view のみを編集する (存在しない場合は無視)"""
+		if self.q_msg is None:
+			return
+		try:
+			await self.q_msg.edit(view=view)
 		except discord.errors.NotFound:
 			pass
 
@@ -363,9 +373,7 @@ class QuizSession:
 		_embed = self.set_footer_track_info(_embed, track)
 
 		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
-		msg = await self._send_to_vc(embed=_embed, view=next_q_button)
-		if msg is not None:
-			self.next_cleanup_messages.append(msg)
+		await self._edit_q_msg(_embed, view=next_q_button)
 
 		_position = 0
 		_uri = await self.resolve_youtube_track_uri(track)
@@ -386,14 +394,7 @@ class QuizSession:
 			return
 
 		next_q_button.enable_all_items()
-		if msg is not None:
-			try:
-				await msg.edit(view=next_q_button)
-			except discord.errors.NotFound:
-				pass
-			except Exception:
-				logger.error("タイムアップ後のボタン有効化に失敗しました")
-				logger.error(traceback.format_exc())
+		await self._edit_q_msg_view(next_q_button)
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
@@ -736,8 +737,8 @@ class QuizSession:
 				self.NEXT.clear()
 
 				logger.debug("- タイトル更新")
-				# タイトルを更新
-				await q_msg.edit(embed=self._question_embed())
+				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
+				await self._edit_q_msg(self._question_embed(), view=QuizAnswerButtonView(self.guild_id))
 
 				# SFX
 				await self.play_sfx(SFX.Q)
@@ -980,6 +981,14 @@ class QuizSession:
 			if self.answering_player:
 				# 不正解
 				self.answering_player.incorrect()
+				# 解答時間切れを全員に表示する
+				await self._edit_q_msg(
+					EmbedsTemplates.error(
+						title=t("msg.q.answering.timeout.title"),
+						description=t("msg.q.answering.timeout.description", pn),
+						icon="⌛",
+					)
+				)
 		finally:
 			await asyncio.sleep(2)
 			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
@@ -996,8 +1005,9 @@ class QuizSession:
 			await self.pl.seek(resume_position)
 			await self.pl.resume()
 
-		# 解答中メッセージを問題表示に戻す
-		await self._edit_q_msg(self._question_embed())
+		# 解答中メッセージを問題表示に戻す (正解時は正解 embed と次ボタンを維持する)
+		if self.can_answered:
+			await self._edit_q_msg(self._question_embed())
 
 		# 部品を有効化
 		# if interaction.view is not None:
