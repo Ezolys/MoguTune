@@ -251,5 +251,7 @@ def run() -> None:
 	client.load_extensions("mogutune.cogs.commands")
 	# コマンドのローカライズ
 	i18n.localize_commands()
+	# コマンドグループのローカライズ
+	i18n.localize_command_groups()
 	# Bot の起動
 	client.run(getenv("TOKEN", ""))

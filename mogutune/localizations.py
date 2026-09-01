@@ -1,10 +1,14 @@
+# Copyright (c) 2026 Milkeyyy
+
 import json
 import logging
 from importlib import resources
 from typing import get_args
 
-from discord import Bot
+from discord import Bot, SlashCommandGroup, utils
 from pycord.localizer import I18n, Locale
+from pycord.localizer.i18n.choice import ChoiceLocalizer
+from pycord.localizer.utils import add_localization
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,58 @@ class Localization:
 			logger.info("- 完了")
 		else:
 			logger.error("- エラー: i18n is None")
+
+	def localize_command_groups(self) -> None:
+		logger.info("コマンドグループの多言語化実行")
+		if self.i18n is None:
+			logger.error("- エラー: i18n is None")
+			return
+
+		# pycord-localizer はコマンドグループとサブコマンドをローカライズできないため、ここで補助する
+		for lang in self.EXISTS_LOCALE_LIST:
+			# Discord のロケール形式へ正規化する (en_GB -> en-GB)
+			locale = lang.replace("_", "-")
+			for key, data in self.LOCALE_DATA[lang].get("commands", {}).items():
+				# キーに空白がないものはコマンドグループ (通常コマンドは localize_commands() が処理済み)
+				if " " not in key:
+					group = utils.get(self.client.pending_application_commands, qualified_name=key)
+					if not isinstance(group, SlashCommandGroup):
+						continue
+					self._apply_name_description(group, locale, data)
+					continue
+				# キーに空白があるものはサブコマンド (ルート名 と サブ名 に分割)
+				root_name, sub_name = key.split(" ", 1)
+				group = utils.get(self.client.pending_application_commands, qualified_name=root_name)
+				if group is None:
+					continue
+				sub = utils.get(group.subcommands, name=sub_name)
+				if sub is None:
+					continue
+				self._apply_name_description(sub, locale, data)
+				if options := data.get("options"):
+					self._localize_options(sub, locale, options)
+
+	@staticmethod
+	def _apply_name_description(target: object, locale: str, data: dict) -> None:
+		"""コマンド名と説明文のローカライズを適用する"""
+		if name := data.get("name"):
+			add_localization(target, "name", locale, name)
+		if description := data.get("description"):
+			add_localization(target, "description", locale, description)
+
+	@staticmethod
+	def _localize_options(command: object, locale: str, options: dict) -> None:
+		"""オプションの name / description / choices をローカライズする (pycord-localizer と同様)"""
+		for option_name, localization in options.items():
+			option = utils.get(command.options, name=option_name)
+			if option is None:
+				continue
+			if op_name := localization.get("name"):
+				add_localization(option, "name", locale, op_name)
+			if op_description := localization.get("description"):
+				add_localization(option, "description", locale, op_description)
+			if op_choices := localization.get("choices"):
+				ChoiceLocalizer.localize_choices(option, locale, op_choices)
 
 	def translate(self, text: str, values: list | None = None, lang: str = "en_GB") -> str:
 		if values is None:

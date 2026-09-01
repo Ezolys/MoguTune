@@ -8,6 +8,7 @@ from os import getenv
 
 import discord
 import mafic
+from discord.utils import MISSING
 from mogutune_core import answers, ranking, trackpool
 from mogutune_core.models import is_same_track
 from mogutune_core.roster import RemoveReason, Roster
@@ -20,6 +21,7 @@ from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
 from mogutune.quiz.track_adapter import to_core_track, to_core_tracks, to_mafic_tracks
+from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
@@ -200,12 +202,11 @@ class QuizSession:
 		return None
 
 	@staticmethod
-	def format_track_title(track: mafic.Track | None, max_length: int | None = None, with_author: bool = False) -> str:
+	def format_track_title(track: mafic.Track | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
 		if track is None:
 			return "Unknown"
 
-		# TODO: 解答候補にアーティスト名を含めるかどうかをサーバーごとまたはクイズセッションごとに設定をできるようにして、設定によって表示するかを変える
 		title = track.title if track.source == "youtube" else track.title
 		if with_author and track.author is not None:
 			title += f" - {track.author}"
@@ -239,14 +240,27 @@ class QuizSession:
 			icon="❔",
 		)
 
-	async def _edit_q_msg(self, embed: discord.Embed) -> None:
+	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
 		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
 		if self.q_msg is None:
 			return
 		try:
-			await self.q_msg.edit(embed=embed)
+			await self.q_msg.edit(embed=embed, view=view)
 		except discord.errors.NotFound:
 			pass
+		except Exception:
+			logger.exception("q_msg の編集に失敗しました")
+
+	async def _edit_q_msg_view(self, view: discord.ui.View | None = MISSING) -> None:
+		"""q_msg の view のみを編集する (存在しない場合は無視)"""
+		if self.q_msg is None:
+			return
+		try:
+			await self.q_msg.edit(view=view)
+		except discord.errors.NotFound:
+			pass
+		except Exception:
+			logger.exception("q_msg の view 編集に失敗しました")
 
 	def _get_text_channel(self) -> discord.abc.Messageable | None:
 		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
@@ -363,9 +377,7 @@ class QuizSession:
 		_embed = self.set_footer_track_info(_embed, track)
 
 		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
-		msg = await self._send_to_vc(embed=_embed, view=next_q_button)
-		if msg is not None:
-			self.next_cleanup_messages.append(msg)
+		await self._edit_q_msg(_embed, view=next_q_button)
 
 		_position = 0
 		_uri = await self.resolve_youtube_track_uri(track)
@@ -386,14 +398,7 @@ class QuizSession:
 			return
 
 		next_q_button.enable_all_items()
-		if msg is not None:
-			try:
-				await msg.edit(view=next_q_button)
-			except discord.errors.NotFound:
-				pass
-			except Exception:
-				logger.error("タイムアップ後のボタン有効化に失敗しました")
-				logger.error(traceback.format_exc())
+		await self._edit_q_msg_view(next_q_button)
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
@@ -736,8 +741,8 @@ class QuizSession:
 				self.NEXT.clear()
 
 				logger.debug("- タイトル更新")
-				# タイトルを更新
-				await q_msg.edit(embed=self._question_embed())
+				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
+				await self._edit_q_msg(self._question_embed(), view=QuizAnswerButtonView(self.guild_id))
 
 				# SFX
 				await self.play_sfx(SFX.Q)
@@ -959,10 +964,10 @@ class QuizSession:
 		)
 
 		# 解答の選択肢セレクターを送信する
-		_ = await interaction.followup.send(
+		settings = await guild_settings_manager.get(self.guild_id)
+		select_msg = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
-			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks()),
-			delete_after=5,  # 5秒後に自動削除
+			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks(), with_author=settings.artist_in_answers),
 			ephemeral=True,
 			wait=True,
 		)
@@ -979,24 +984,44 @@ class QuizSession:
 			if self.answering_player:
 				# 不正解
 				self.answering_player.incorrect()
+				# 解答時間切れを全員に表示する
+				await self._edit_q_msg(
+					EmbedsTemplates.error(
+						title=t("msg.q.answering.timeout.title"),
+						description=t("msg.q.answering.timeout.description", pn),
+						icon="⌛",
+					)
+				)
+				# セレクターを削除する (解答時は answer_select_callback 側で削除済み)
+				try:
+					await select_msg.delete()
+				except discord.errors.NotFound:
+					pass
 		finally:
 			await asyncio.sleep(2)
 			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
 			if self.can_answered:
 				# 解答ができる状態にする
 				self.answering_player = None
-			# 再生再開
-			logger.debug("- 再生再開")
-			# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
-			if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
-				resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
-			else:
-				resume_position = 0
-			await self.pl.seek(resume_position)
-			await self.pl.resume()
+				# 不正解 SFX などが再生中の場合はその終了を待ってから再開する
+				if self.is_playing_sfx:
+					try:
+						await asyncio.wait_for(self.SFX_FINISHED.wait(), timeout=10)
+					except TimeoutError:
+						logger.warning("SFX の終了待機がタイムアウトしました")
+				# 再生再開
+				logger.debug("- 再生再開")
+				# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
+				if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
+					resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
+				else:
+					resume_position = 0
+				await self.pl.seek(resume_position)
+				await self.pl.resume()
 
-		# 解答中メッセージを問題表示に戻す
-		await self._edit_q_msg(self._question_embed())
+		# 解答中メッセージを問題表示に戻す (正解時は正解 embed と次ボタンを維持する)
+		if self.can_answered:
+			await self._edit_q_msg(self._question_embed())
 
 		# 部品を有効化
 		# if interaction.view is not None:

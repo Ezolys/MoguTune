@@ -84,6 +84,10 @@ class QuizNextQButtonView(discord.ui.View):
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
+		# 二重押し対策 (edit 反映前に再入した場合は無視する)
+		if self.next_q_button.disabled:
+			return
+
 		if interaction.user is None:
 			await interaction.respond(
 				embed=EmbedsTemplates.internal_error(
@@ -127,9 +131,10 @@ class QuizNextQButtonView(discord.ui.View):
 			)
 			return
 
-		# 正解メッセージを削除する
+		# 二重押しを防ぐためにボタンを無効化する (q_msg は次の問題で再利用するため削除しない)
+		self.disable_all_items()
 		try:
-			await interaction.message.delete()
+			await interaction.response.edit_message(view=self)
 		except discord.errors.NotFound:
 			pass
 		# 再生停止 (=次の問題へ)
@@ -138,8 +143,8 @@ class QuizNextQButtonView(discord.ui.View):
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *args, **kwargs) -> None:
-		super().__init__(*args, **kwargs)
+	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *, with_author: bool = False, **kwargs) -> None:
+		super().__init__(**kwargs)
 
 		self.session_id = session_id
 		self.session = quiz_session_manager.get_session(session_id)
@@ -156,7 +161,7 @@ class QuizAnswerSelectView(discord.ui.View):
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
 		# 解答候補一覧
 		for tr in answer_tracks:
-			_title = self.session.format_track_title(tr, max_length=90)
+			_title = self.session.format_track_title(tr, max_length=90, with_author=with_author)
 			self.answer_select.options.append(
 				discord.SelectOption(
 					label=_title,
@@ -199,26 +204,29 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=3,
 			)
-			# 削除対象メッセージに追加
-			self.session.next_cleanup_messages.append(await _.original_message())
 			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
+
+		# 選択肢セレクターを即削除して選択し直しを防ぐ
+		await interaction.response.defer()
+		try:
+			await interaction.delete_original_response()
+		except discord.errors.NotFound:
+			pass
 
 		# 不正解
 		# FIXME: 解答判定時に問題があった場合も None が返ってきて不正解判定になるので、問題があった場合は別の処理を行うようにする
 		if result is None:
 			_track = self.session.get_track_from_uri(interaction.data["values"][0])
 			_title = self.session.format_track_title(_track)
-			# メッセージを送信
-			_ = await interaction.response.send_message(
-				embed=EmbedsTemplates.error(
+			# 不正解を q_msg に表示する (全員に見える)
+			await self.session._edit_q_msg(  # noqa: SLF001
+				EmbedsTemplates.error(
 					title=t("view.q.answer_select.incorrect.title"),
 					description=t("view.q.answer_select.incorrect.description", _title),
 					icon="❌",
-				),
-				ephemeral=True,
-				delete_after=2,
+				)
 			)
 			# SFX
 			await self.session.play_sfx(SFX.INCORRECT)
@@ -237,16 +245,9 @@ class QuizAnswerSelectView(discord.ui.View):
 			)
 			_embed = self.session.set_footer_track_info(_embed, _track)
 
-			# メッセージを送信
+			# q_msg を正解 embed に編集し、次の問題へボタンを配置する
 			next_q_button = QuizNextQButtonView(self.session_id, disabled=True)
-			_ = await interaction.response.send_message(
-				embed=_embed,
-				view=next_q_button,  # 次の問題へ ボタン
-				# ephemeral=True,
-				# delete_after=3,
-			)
-			# 削除対象メッセージに追加
-			self.session.next_cleanup_messages.append(await _.original_message())
+			await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
 			# SFX
 			await self.session.play_sfx(SFX.CORRECT, restore=False)  # restore を False にして解答できないままにする
 			await asyncio.sleep(1)
@@ -270,7 +271,7 @@ class QuizAnswerSelectView(discord.ui.View):
 
 			# 次の問題へボタンを有効化
 			next_q_button.enable_all_items()
-			await _.edit_original_response(view=next_q_button)
+			await self.session._edit_q_msg_view(next_q_button)  # noqa: SLF001
 
 
 class QuizAnswerButtonView(discord.ui.View):
@@ -420,15 +421,8 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 通知メッセージを送信する
 		next_q_button = QuizNextQButtonView(self.session_id, disabled=True)  # 次の問題へ ボタン
-		msg = await interaction.respond(
-			embed=_embed,
-			view=next_q_button,
-		)
-
-		# 削除対象メッセージに追加
-		if isinstance(msg, discord.Interaction):
-			msg = await msg.original_message()
-		self.session.next_cleanup_messages.append(msg)
+		await interaction.response.defer()
+		await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
 
 		# 答えの楽曲を再生する
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
@@ -449,4 +443,4 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 次の問題へボタンを有効化
 		next_q_button.enable_all_items()
-		await msg.edit(view=next_q_button)
+		await self.session._edit_q_msg_view(next_q_button)  # noqa: SLF001
