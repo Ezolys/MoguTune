@@ -248,6 +248,8 @@ class QuizSession:
 			await self.q_msg.edit(embed=embed, view=view)
 		except discord.errors.NotFound:
 			pass
+		except Exception:
+			logger.exception("q_msg の編集に失敗しました")
 
 	async def _edit_q_msg_view(self, view: discord.ui.View | None = MISSING) -> None:
 		"""q_msg の view のみを編集する (存在しない場合は無視)"""
@@ -257,6 +259,8 @@ class QuizSession:
 			await self.q_msg.edit(view=view)
 		except discord.errors.NotFound:
 			pass
+		except Exception:
+			logger.exception("q_msg の view 編集に失敗しました")
 
 	def _get_text_channel(self) -> discord.abc.Messageable | None:
 		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
@@ -961,10 +965,9 @@ class QuizSession:
 
 		# 解答の選択肢セレクターを送信する
 		settings = await guild_settings_manager.get(self.guild_id)
-		_ = await interaction.followup.send(
+		select_msg = await interaction.followup.send(
 			embed=EmbedsTemplates.info(title=t("msg.q.answer.title"), description=t("msg.q.answer.description"), icon="🗨️"),
 			view=QuizAnswerSelectView(self.guild_id, await self.get_answer_tracks(), with_author=settings.artist_in_answers),
-			delete_after=5,  # 5秒後に自動削除
 			ephemeral=True,
 			wait=True,
 		)
@@ -989,21 +992,32 @@ class QuizSession:
 						icon="⌛",
 					)
 				)
+				# セレクターを削除する (解答時は answer_select_callback 側で削除済み)
+				try:
+					await select_msg.delete()
+				except discord.errors.NotFound:
+					pass
 		finally:
 			await asyncio.sleep(2)
 			# 正解が出ておらず、次の問題に進んでいない場合のみ再生を再開する
 			if self.can_answered:
 				# 解答ができる状態にする
 				self.answering_player = None
-			# 再生再開
-			logger.debug("- 再生再開")
-			# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
-			if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
-				resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
-			else:
-				resume_position = 0
-			await self.pl.seek(resume_position)
-			await self.pl.resume()
+				# 不正解 SFX などが再生中の場合はその終了を待ってから再開する
+				if self.is_playing_sfx:
+					try:
+						await asyncio.wait_for(self.SFX_FINISHED.wait(), timeout=10)
+					except TimeoutError:
+						logger.warning("SFX の終了待機がタイムアウトしました")
+				# 再生再開
+				logger.debug("- 再生再開")
+				# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
+				if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
+					resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
+				else:
+					resume_position = 0
+				await self.pl.seek(resume_position)
+				await self.pl.resume()
 
 		# 解答中メッセージを問題表示に戻す (正解時は正解 embed と次ボタンを維持する)
 		if self.can_answered:

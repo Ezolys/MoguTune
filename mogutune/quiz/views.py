@@ -84,6 +84,10 @@ class QuizNextQButtonView(discord.ui.View):
 	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
+		# 二重押し対策 (edit 反映前に再入した場合は無視する)
+		if self.next_q_button.disabled:
+			return
+
 		if interaction.user is None:
 			await interaction.respond(
 				embed=EmbedsTemplates.internal_error(
@@ -129,7 +133,10 @@ class QuizNextQButtonView(discord.ui.View):
 
 		# 二重押しを防ぐためにボタンを無効化する (q_msg は次の問題で再利用するため削除しない)
 		self.disable_all_items()
-		await interaction.response.edit_message(view=self)
+		try:
+			await interaction.response.edit_message(view=self)
+		except discord.errors.NotFound:
+			pass
 		# 再生停止 (=次の問題へ)
 		await self.session.pl.stop()
 		self.session.NEXT.set()
@@ -197,8 +204,6 @@ class QuizAnswerSelectView(discord.ui.View):
 				ephemeral=True,
 				delete_after=3,
 			)
-			# 削除対象メッセージに追加
-			self.session.next_cleanup_messages.append(await _.original_message())
 			return
 
 		result = await self.session.answer(interaction.user.id, interaction.data["values"][0])
