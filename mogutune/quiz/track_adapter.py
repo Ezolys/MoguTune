@@ -23,7 +23,7 @@ def to_core_track(track: SonoPlayable) -> CoreTrack:
 	# ISRC がない場合は plugin_info から探してみる
 	if _isrc is None:
 		_plugin_info = getattr(track.data, "plugin_info", None)
-		if _plugin_info:
+		if isinstance(_plugin_info, dict) and _plugin_info:
 			_isrc = _plugin_info.get("isrc")
 	return CoreTrack(
 		uri=track.uri,

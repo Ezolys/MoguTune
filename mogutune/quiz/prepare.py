@@ -220,7 +220,7 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 				return
 		else:
 			# プレイリストを検索
-			logger.debug(f"プレイリスト検索 - {search_source}: {query}")
+			logger.debug("プレイリスト検索 - %s: %s", search_source, query)
 			try:
 				playlist_result = unpack_search(await client.sl_client.search_track(query, source=search_source))
 			except Exception:

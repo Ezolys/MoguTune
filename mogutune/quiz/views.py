@@ -66,7 +66,7 @@ class QuizNextQButtonView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			logger.error(f"{self.__class__.__name__}.session is None")
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		# 次の問題があるかどうかに応じてラベルと絵文字を設定
@@ -152,7 +152,7 @@ class QuizAnswerSelectView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			logger.error(f"{self.__class__.__name__}.session is None")
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		logger.debug("Answer Select Options")
@@ -160,8 +160,10 @@ class QuizAnswerSelectView(discord.ui.View):
 			logger.debug(f"{at.title}: {at.uri}")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
-		# 解答候補一覧
+		# 解答候補一覧 (uri がないトラックは SelectOption の value にできないため除外)
 		for tr in answer_tracks:
+			if tr.uri is None:
+				continue
 			_title = self.session.format_track_title(tr, max_length=90, with_author=with_author)
 			self.answer_select.options.append(
 				discord.SelectOption(
@@ -266,10 +268,10 @@ class QuizAnswerSelectView(discord.ui.View):
 					_uri = _track.uri
 				if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
 					_position = await YTMostReplayedAPI.get_chorus_info(_uri)
-					logger.info(f"Play Position: {_position}")
+					logger.info("Play Position: %s", _position)
 					if _position is None:
 						_position = 0
-				logger.debug(f"Resuming track: {_track.uri} at {_position}")
+				logger.debug("Resuming track: %s at %s", _track.uri, _position)
 				await self.session.pl.play(_track, start=_position, volume=self.session.PL_VOLUME, paused=False)
 			except Exception:
 				logger.exception("正解後の楽曲再生に失敗しました")
@@ -288,7 +290,7 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			logger.error(f"{self.__class__.__name__}.session is None")
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		# 解答ボタン
@@ -443,10 +445,10 @@ class QuizAnswerButtonView(discord.ui.View):
 					_uri = self.session.pl.current.uri
 				if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
 					_position = await YTMostReplayedAPI.get_chorus_info(_uri)
-					logger.info(f"Play Position: {_position}")
+					logger.info("Play Position: %s", _position)
 					if _position is None:
 						_position = 0
-				logger.debug(f"Resuming track (Skip): {pl_current.uri} at {_position}")
+				logger.debug("Resuming track (Skip): %s at %s", pl_current.uri, _position)
 				await self.session.pl.play(pl_current, start=_position, volume=self.session.PL_VOLUME, paused=False)
 			except Exception:
 				logger.exception("スキップ後の楽曲再生に失敗しました")
