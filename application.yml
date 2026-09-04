@@ -166,7 +166,7 @@ lavalink:
       http: false # warning: keeping HTTP enabled without a proxy configured could expose your server's IP address.
       local: true
     filters: # All filters are enabled by default
-      volume: false
+      volume: true
       equalizer: false
       karaoke: false
       timescale: false
