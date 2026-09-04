@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sys
 import traceback
 from asyncio import sleep
@@ -45,11 +46,13 @@ class Bot(commands.Bot):
 
 		# sonolink 1.3.0 の create_node には secure 引数がないため、TLS は URI 形式で指定する
 		# 自動切断 (Inactivity) は無効化し、切断管理はクイズセッション側に一任する
+		# retries 未指定だと node.connect() が無限リトライして on_connect をブロックするため有限回にする
 		if secure:
 			self.sl_client.create_node(
 				uri=f"https://{host}:{port}",
 				password=password,
 				id=label,
+				retries=3,
 				inactivity_settings=InactivitySettings(timeout=None),
 			)
 		else:
@@ -58,6 +61,7 @@ class Bot(commands.Bot):
 				port=port,
 				password=password,
 				id=label,
+				retries=3,
 				inactivity_settings=InactivitySettings(timeout=None),
 			)
 		logger.info("Lavalink ノードを登録: %s:%d (Secure: %s, ID: %s)", host, port, secure, label)
@@ -69,6 +73,9 @@ class Bot(commands.Bot):
 			try:
 				logger.info("Lavalink ノードへ接続 [試行 %d/%d]", attempt, max_attempts)
 				await self.sl_client.start()
+				# sonolink の start() は接続失敗を例外で通知しない (内部で握りつぶす) ため、接続結果を直接検証する
+				if not any(n.is_connected for n in self.sl_client.nodes):
+					raise RuntimeError("Lavalink ノードが接続されていません")
 				self.sl_started = True
 				break
 			except Exception as e:
@@ -78,7 +85,8 @@ class Bot(commands.Bot):
 				else:
 					logger.exception("Lavalink ノードへの接続に %d 回失敗しました", max_attempts)
 					await KumaSan.ping(state="error", message=f"Lavalink ノードへの接続に {max_attempts} 回失敗しました")
-					sys.exit(1)
+					# イベントタスク内では sys.exit がプロセスを終了させないため os._exit で確実に終了する
+					os._exit(1)
 
 
 intents = discord.Intents.default()
@@ -111,7 +119,7 @@ async def update_presets() -> None:
 	await client.get_cog("QuizCommands").load_presets(i18n)
 
 
-# 5分に1回 Lavalink ノードの接続を確認し、全断なら再接続を試みる (起動時失敗は sys.exit 済みのため警告に留める)
+# 5分に1回 Lavalink ノードの接続を確認し、全断なら再接続を試みる (起動時失敗は終了済みのため警告に留める)
 @tasks.loop(minutes=5)
 async def check_lavalink_nodes() -> None:
 	if not client.sl_started:
@@ -121,7 +129,11 @@ async def check_lavalink_nodes() -> None:
 	except Exception:
 		logger.exception("Lavalink ノード一覧の取得に失敗")
 		return
-	if not nodes or all(n.is_connected for n in nodes):
+	if not nodes:
+		# ノード登録自体がない状態は通常発生しない (start() も対象がないため再接続できない)
+		logger.warning("Lavalink ノードが登録されていません")
+		return
+	if all(n.is_connected for n in nodes):
 		return
 	logger.warning("Lavalink ノードが未接続のため再接続を試みます")
 	try:
