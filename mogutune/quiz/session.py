@@ -121,6 +121,8 @@ class QuizSession:
 	"""巻き戻しを適用する回答開始時再生位置の下限 (ミリ秒) 未満の場合は最初から再生する"""
 	answer_pause_position: int = 0
 	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
+	expect_user_next: bool = False
+	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -427,6 +429,7 @@ class QuizSession:
 		self.q_msg = None
 		self.owner = None
 		self.roster.owner_id = None
+		self.expect_user_next = False
 		self.restore_track_after_sfx = True
 		self.answer_pause_position = 0
 
@@ -443,20 +446,23 @@ class QuizSession:
 			logger.warning(f"SFX再生中止 - SFX の URL またはファイルパスが設定されていません (SFX.{sfx_query.name})")
 			return
 
-		# SFXを解決する (再生不可の場合は一時停止せずに戻る)
-		track = await self.resolve_sfx_track(sfx_query)
-		if track is None:
-			return
+		# 解決待ちの間も多重起動を防ぐため先に占有する (finally で解放する)
+		self.is_playing_sfx = True
+		self.SFX_FINISHED.clear()
 
 		# 解答可能かどうかを記憶
 		before_can_answered = self.can_answered
-		# 解答できない状態にする
-		self.can_answered = False
 
 		try:
-			self.is_playing_sfx = True
+			# SFXを解決する (再生不可の場合は一時停止せずに戻る。解決失敗時も finally で占有を解放する)
+			track = await self.resolve_sfx_track(sfx_query)
+			if track is None:
+				return
+
+			# 解答できない状態にする
+			self.can_answered = False
+
 			self.restore_track_after_sfx = restore
-			self.SFX_FINISHED.clear()
 
 			# 元のトラックと再生位置を保存
 			self.original_track_before_sfx = self.pl.current
@@ -765,6 +771,7 @@ class QuizSession:
 				await start_msg.edit(embed=start_msg.embeds[0])
 
 				self.NEXT.clear()
+				self.expect_user_next = False
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)

@@ -55,7 +55,7 @@ async def build_node_embed(label: str, node: sonolink.Node) -> discord.Embed:
 		emb.add_field(name="Playing", value=f"{stats.playing_players}/{stats.players}", inline=True)
 		emb.add_field(name="Memory", value=f"{mem_used:.1f} / {mem_alloc:.1f} MB", inline=True)
 		cpu = stats.cpu
-		cpu_value = f"{cpu.cores} cores | sys: {cpu.system_load:.1f}% | ll: {cpu.lavalink_load:.1f}%"
+		cpu_value = f"{cpu.cores} cores | sys: {cpu.system_load * 100:.1f}% | ll: {cpu.lavalink_load * 100:.1f}%"
 		emb.add_field(name="CPU", value=cpu_value, inline=False)
 		emb.add_field(name="Uptime", value=f"{uptime_h}h {uptime_m}m", inline=True)
 

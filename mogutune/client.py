@@ -111,6 +111,25 @@ async def update_presets() -> None:
 	await client.get_cog("QuizCommands").load_presets(i18n)
 
 
+# 5分に1回 Lavalink ノードの接続を確認し、全断なら再接続を試みる (起動時失敗は sys.exit 済みのため警告に留める)
+@tasks.loop(minutes=5)
+async def check_lavalink_nodes() -> None:
+	if not client.sl_started:
+		return
+	try:
+		nodes = list(client.sl_client.nodes)
+	except Exception:
+		logger.exception("Lavalink ノード一覧の取得に失敗")
+		return
+	if not nodes or all(n.is_connected for n in nodes):
+		return
+	logger.warning("Lavalink ノードが未接続のため再接続を試みます")
+	try:
+		await client.sl_client.start()
+	except Exception:
+		logger.exception("Lavalink ノードの再接続に失敗")
+
+
 # アプリケーションコマンド実行時のイベント
 @client.listen()
 async def on_application_command_completion(ctx: discord.ApplicationContext) -> None:
@@ -262,6 +281,9 @@ async def on_ready() -> None:
 	# 生存確認ループ開始
 	if getenv("UPTIME_KUMA_PUSH_URL", "") != "":
 		send_heartbeat.start()
+
+	# Lavalink 接続監視ループ開始
+	check_lavalink_nodes.start()
 
 
 def run() -> None:

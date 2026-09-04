@@ -61,9 +61,6 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			)
 			msg = await _inter.original_message()
 
-		if msg is None:
-			return
-
 		# ユーザーがボイスチャンネルに接続しているかチェック
 		if user.voice is None:
 			# ボイスチャンネルに参加していない場合はエラー

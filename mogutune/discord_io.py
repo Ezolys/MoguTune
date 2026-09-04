@@ -39,16 +39,3 @@ async def safe_send(channel: discord.abc.Messageable, /, **kwargs: object) -> bo
 		logger.exception("メッセージ送信失敗")
 		return False
 	return True
-
-
-async def safe_respond(ctx: discord.ApplicationContext, /, **kwargs: object) -> bool:
-	"""インタラクション応答の best-effort 版 (失敗時はログのみ残し False を返す)"""
-	try:
-		await ctx.respond(**kwargs)
-	except _SEND_ERRORS as e:
-		logger.warning("インタラクション応答失敗 (%s): %s", type(e).__name__, e)
-		return False
-	except Exception:
-		logger.exception("インタラクション応答失敗")
-		return False
-	return True

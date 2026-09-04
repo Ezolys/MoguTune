@@ -134,5 +134,6 @@ async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent)
 	if payload.reason == sonolink.TrackEndReason.FINISHED:
 		if session.can_answered:
 			await session.reveal_answer_on_timeout(payload.track)
-		else:
+		# 正解・スキップ後のリプレイは次ボタン待ち (自然終了での自動進行を防ぐ)
+		elif not session.expect_user_next:
 			session.NEXT.set()
