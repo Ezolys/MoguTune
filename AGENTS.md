@@ -40,7 +40,7 @@ python main.py
 - **ボイス接続**: `voice_channel.connect(cls=sonolink.Player)` (`quiz/prepare.py`) — sonolink の Player クラスを使う。検索は `sl_client.search_track()` で行い、`SearchResult` を `track_adapter.unpack_search()` で正規化する（エラー・空結果は None）
 - **クイズ**: `mogutune/quiz/` サブパッケージ（manager / session / views / prepare / events / track_adapter に分割、`__init__.py` で全公開。`player.py` は core の再エクスポート）。`quiz_session_manager` シングルトンが guild_id をキーに管理し、1ギルドにつき1セッションまで。**ゲームロジック (Roster / trackpool / answers / ranking) は `mogutune-core` パッケージの純粋ロジックを使用**。`session.py` はオーケストレーション (Discord UI / sonolink 再生 / SFX / ロケール写像) のみを担い、`track_adapter.py` が sonolink.Playable ↔ core.Track の変換を集約する (変換はこの1箇所のみ)
 - **プリセット更新**: `on_ready` で1時間おきに `update_presets` タスクが起動し、Cog `QuizCommands.load_presets()` が DB からプリセットを再読込する
-- **効果音 (SFX)**: `mogutune/sfx.py` の `SFX` Enum が `SFX_QUIZ_{CORRECT,INCORRECT,Q,A,ERROR}` 環境変数からパスを読み込み。未設定の SFX はスキップされる
+- **効果音 (SFX)**: `mogutune/sfx.py` の `SFX` Enum が `SFX_QUIZ_{CORRECT,INCORRECT,Q,A,ERROR}` 環境変数からパスを読み込み。URL または Lavalink内パス（`local` ソースで identifier 解決。`/opt/Lavalink/sfx/` 配下のみ許可、`session.py::resolve_sfx_track` で検査）を指定し、未設定・解決不可の SFX はスキップされる
 - **サビ検出**: `mogutune/chorus.py` の `YTMostReplayedAPI` が `YTMRAPI_URL` / `YTMRAPI_SECRET` の外部 API からサビ再生位置 (ミリ秒) を取得
 - **死活監視**: `mogutune/kumasan.py` の `KumaSan` が Uptime Kuma へ heartbeat を送信。`UPTIME_KUMA_PUSH_URL` 未設定ならスキップ。`on_ready` 時と1分ごとの `send_heartbeat` ループ、Lavalink 接続失敗時にも ping 送信
 - **共通モジュール**:
@@ -67,7 +67,7 @@ python main.py
 
 ## デプロイ
 
-`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。
+`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント、Lavalink 側は `./sfx` を `/opt/Lavalink/sfx` に `:ro` でマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。
 
 ## コードスタイル
 

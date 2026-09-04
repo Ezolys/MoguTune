@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import logging
+import posixpath
 import random
 import traceback
 from dataclasses import dataclass, field
@@ -27,6 +28,9 @@ from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+# SFX に許可する Lavalink 内ディレクトリ (local ソースで identifier 解決する)
+SFX_LOCAL_DIR = "/opt/Lavalink/sfx/"
 
 
 @dataclass
@@ -500,20 +504,22 @@ class QuizSession:
 				self.can_answered = True
 
 	async def resolve_sfx_track(self, sfx_query: str | SFX) -> SonoPlayable | None:
-		"""SFX のクエリ (URL または SFX Enum) を解決する (再生不可の場合は None)"""
-		url: str | None = sfx_query if isinstance(sfx_query, str) else sfx_query.value
-		if url is None:
+		"""SFX のクエリ (URL・Lavalink内パス・SFX Enum) を解決する (再生不可の場合は None)"""
+		query: str | None = sfx_query if isinstance(sfx_query, str) else sfx_query.value
+		if query is None:
 			return None
-		# ローカルファイルパスは SonoLink の play() で再生できないためスキップする
-		if not url.startswith(("http://", "https://")):
-			logger.warning(f"SFX再生中止 - ローカルファイルパスは再生できません: {url}")
-			return None
-		sfx_result = unpack_search(await client.sl_client.search_track(url))
+		# Lavalink内パスは SFX_LOCAL_DIR 配下のみ許可する (../ 排除。パスは Lavalink 側のものなので posix 固定)
+		if not query.startswith(("http://", "https://")):
+			if posixpath.normpath(query) != query or not query.startswith(SFX_LOCAL_DIR):
+				logger.warning(f"SFX再生中止 - 許可されていないパスです: {query}")
+				return None
+		sfx_result = unpack_search(await client.sl_client.search_track(query))
 		if isinstance(sfx_result, SonoPlayable):
 			return sfx_result
 		if isinstance(sfx_result, list) and sfx_result:
 			return sfx_result[0]
-		raise Exception("SFX track not found or is a playlist.")
+		logger.warning(f"SFX再生中止 - トラックを解決できませんでした: {query}")
+		return None
 
 	async def resolve_youtube_track_uri(self, track: SonoPlayable) -> str | None:
 		"""トラックのYouTube URLを解決する"""
