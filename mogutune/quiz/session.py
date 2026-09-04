@@ -105,6 +105,8 @@ class QuizSession:
 
 	is_playing_sfx: bool = False
 	"""SFXを再生しているかどうか"""
+	sfx_track_playing: SonoPlayable | None = None
+	"""現在実際に再生中の SFX トラック (resolve 中の先行占有を区別するため play() 発行時にのみ設定)"""
 	restore_track_after_sfx: bool = True
 	"""SFX再生後に元のトラックを復帰するかどうか"""
 	original_track_before_sfx: SonoPlayable | None = None
@@ -431,6 +433,7 @@ class QuizSession:
 		self.roster.owner_id = None
 		self.expect_user_next = False
 		self.restore_track_after_sfx = True
+		self.sfx_track_playing = None
 		self.answer_pause_position = 0
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
@@ -478,6 +481,8 @@ class QuizSession:
 			await self.pl.pause()
 
 			# SFXを再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
+			# play() を発行した時点で sfx_track_playing を設定し、resolve 中の先行占有と区別する
+			self.sfx_track_playing = track
 			await self.pl.play(track, volume=self.PL_SFX_VOLUME, paused=False)
 
 			# SFXの再生終了を待つ
@@ -504,6 +509,7 @@ class QuizSession:
 		finally:
 			self.is_playing_sfx = False
 			self.restore_track_after_sfx = True
+			self.sfx_track_playing = None
 			self.SFX_FINISHED.set()
 			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
 			if restore and before_can_answered:
@@ -517,14 +523,18 @@ class QuizSession:
 		# Lavalink内パスは SFX_LOCAL_DIR 配下のみ許可する (../ 排除。パスは Lavalink 側のものなので posix 固定)
 		if not query.startswith(("http://", "https://")):
 			if posixpath.normpath(query) != query or not query.startswith(SFX_LOCAL_DIR):
-				logger.warning(f"SFX再生中止 - 許可されていないパスです: {query}")
+				logger.warning("SFX再生中止 - 許可されていないパスです: %s", query)
 				return None
-		sfx_result = unpack_search(await client.sl_client.search_track(query))
+			# ローカルファイルは Lavalink の local ソース (local: プレフィックス) で解決する
+			# (search_track のデフォルト source は ytsearch のため、パスを渡すと検索として解釈される)
+			sfx_result = unpack_search(await client.sl_client.search_track(query, source="local"))
+		else:
+			sfx_result = unpack_search(await client.sl_client.search_track(query))
 		if isinstance(sfx_result, SonoPlayable):
 			return sfx_result
 		if isinstance(sfx_result, list) and sfx_result:
 			return sfx_result[0]
-		logger.warning(f"SFX再生中止 - トラックを解決できませんでした: {query}")
+		logger.warning("SFX再生中止 - トラックを解決できませんでした: %s", query)
 		return None
 
 	async def resolve_youtube_track_uri(self, track: SonoPlayable) -> str | None:
@@ -538,7 +548,7 @@ class QuizSession:
 		# ISRC がない場合は plugin_info から探してみる
 		if _isrc is None:
 			_plugin_info = getattr(track.data, "plugin_info", None)
-			if _plugin_info:
+			if isinstance(_plugin_info, dict) and _plugin_info:
 				_isrc = _plugin_info.get("isrc")
 
 		async def _search_first(query: str, source: sonolink.TrackSourceType) -> SonoPlayable | None:
