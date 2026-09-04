@@ -2,8 +2,8 @@ import asyncio
 import logging
 
 import discord
-import mafic
 from pycord.localizer import t
+from sonolink.models import Playable as SonoPlayable
 
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.debug_logger import DebugLogger
@@ -143,7 +143,7 @@ class QuizNextQButtonView(discord.ui.View):
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *, with_author: bool = False, **kwargs) -> None:
+	def __init__(self, session_id: int, answer_tracks: list[SonoPlayable], *, with_author: bool = False, **kwargs) -> None:
 		super().__init__(**kwargs)
 
 		self.session_id = session_id
@@ -267,7 +267,7 @@ class QuizAnswerSelectView(discord.ui.View):
 				if _position is None:
 					_position = 0
 			logger.debug(f"Resuming track: {_track.uri} at {_position}")
-			await self.session.pl.play(_track, start_time=_position, volume=self.session.PL_VOLUME)
+			await self.session.pl.play(_track, start=_position, volume=self.session.PL_VOLUME, paused=False)
 
 			# 次の問題へボタンを有効化
 			next_q_button.enable_all_items()
@@ -439,7 +439,7 @@ class QuizAnswerButtonView(discord.ui.View):
 				if _position is None:
 					_position = 0
 			logger.debug(f"Resuming track (Skip): {pl_current.uri} at {_position}")
-			await self.session.pl.play(pl_current, start_time=_position, volume=self.session.PL_VOLUME)
+			await self.session.pl.play(pl_current, start=_position, volume=self.session.PL_VOLUME, paused=False)
 
 		# 次の問題へボタンを有効化
 		next_q_button.enable_all_items()

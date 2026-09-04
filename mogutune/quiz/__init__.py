@@ -6,18 +6,18 @@ __all__ = [
 	"QuizReplayButtonView",
 	"QuizSession",
 	"QuizSessionManager",
-	"on_track_end",
-	"on_track_exception",
-	"on_track_start",
+	"on_sonolink_track_end",
+	"on_sonolink_track_exception",
+	"on_sonolink_track_start",
 	"on_voice_state_update",
 	"prepare_play",
 	"quiz_session_manager",
 ]
 
 from mogutune.quiz.events import (
-	on_track_end,
-	on_track_exception,
-	on_track_start,
+	on_sonolink_track_end,
+	on_sonolink_track_exception,
+	on_sonolink_track_start,
 	on_voice_state_update,
 )
 from mogutune.quiz.manager import QuizSessionManager, quiz_session_manager

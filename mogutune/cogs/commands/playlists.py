@@ -5,12 +5,14 @@ import logging
 import traceback
 
 import discord
-import mafic
+import sonolink
 import uuid_utils as uuid
 from discord.ext import commands
 from mogutune_core import trackpool
 from mogutune_core.db import DBManager
 from pycord.localizer import t
+from sonolink.models import Playable as SonoPlayable
+from sonolink.models import Playlist as SonoPlaylist
 
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
@@ -21,7 +23,7 @@ from mogutune.playlists import (
 	Playlist,
 	dedupe_track_docs,
 )
-from mogutune.quiz.track_adapter import to_core_tracks, to_mafic_tracks, to_stored_track_dict
+from mogutune.quiz.track_adapter import to_core_tracks, to_sono_tracks, to_stored_track_dict, unpack_search
 from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
@@ -71,10 +73,10 @@ class PlaylistCommands(discord.Cog):
 			return [discord.OptionChoice(name=label, value=value)]
 		return []
 
-	async def _fetch(self, url: str) -> list[mafic.Track] | mafic.Playlist | None:
+	async def _fetch(self, url: str) -> SonoPlayable | list[SonoPlayable] | SonoPlaylist | None:
 		"""URL を Lavalink で解決する (失敗時は None)"""
 		try:
-			return await client.pool.get_random_node().fetch_tracks(url, search_type=mafic.SearchType.YOUTUBE_MUSIC)
+			return unpack_search(await client.sl_client.search_track(url, source=sonolink.TrackSourceType.YOUTUBE_MUSIC))
 		except Exception:
 			logger.exception("楽曲取得失敗: %s", url)
 			return None
@@ -82,6 +84,8 @@ class PlaylistCommands(discord.Cog):
 	async def _fetch_single_track_doc(self, url: str) -> dict | None:
 		"""単一トラックの URL を解決して保存用サブドキュメントを返す (単一トラックでない・失敗時は None)"""
 		result = await self._fetch(url)
+		if isinstance(result, SonoPlayable):
+			return to_stored_track_dict(result)
 		if not isinstance(result, list) or not result:
 			return None
 		return to_stored_track_dict(result[0])
@@ -89,12 +93,12 @@ class PlaylistCommands(discord.Cog):
 	async def _fetch_playlist_track_docs(self, url: str) -> list[dict] | None:
 		"""プレイリスト URL を解決して保存用サブドキュメントの一覧を返す (単一トラック・失敗時は None)"""
 		result = await self._fetch(url)
-		if not isinstance(result, mafic.Playlist):
+		if not isinstance(result, SonoPlaylist):
 			return None
-		# 重複した楽曲を除く (core で判定し、URI で mafic.Track へ引き戻す)
+		# 重複した楽曲を除く (core で判定し、URI で sonolink.Playable へ引き戻す)
 		unique_core_tracks = trackpool.dedupe(to_core_tracks(result.tracks))
-		unique_mafic_tracks = to_mafic_tracks(unique_core_tracks, result.tracks)
-		return [to_stored_track_dict(t) for t in unique_mafic_tracks]
+		unique_sono_tracks = to_sono_tracks(unique_core_tracks, result.tracks)
+		return [to_stored_track_dict(t) for t in unique_sono_tracks]
 
 	@playlist.command(name="new")
 	@discord.guild_only()
