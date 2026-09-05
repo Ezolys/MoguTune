@@ -4,17 +4,36 @@ import traceback
 from os import getenv
 
 import discord
-import mafic
+import sonolink
+from mogutune_core.db import DBManager
 from pycord.localizer import t
+from sonolink.models import Playable as SonoPlayable
+from sonolink.models import Playlist as SonoPlaylist
 
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
+from mogutune.discord_io import safe_edit, safe_send
 from mogutune.embeds import EmbedsTemplates
+from mogutune.playlists import Playlist
 from mogutune.quiz.manager import quiz_session_manager
 from mogutune.quiz.permissions import check_voice_permissions
+from mogutune.quiz.track_adapter import TrackCollection, unpack_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+async def _leave_vc(guild: discord.Guild) -> bool:
+	"""VCに残留接続があれば切断する (失敗時はログのみ残す)。切断したら True を返す"""
+	try:
+		voice_client = guild.voice_client
+		if voice_client is None:
+			return False
+		await voice_client.disconnect()
+	except Exception:
+		logger.exception("残留VC接続の切断に失敗")
+		return False
+	return True
 
 
 async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
@@ -42,17 +61,14 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			)
 			msg = await _inter.original_message()
 
-		if msg is None:
-			return
-
 		# ユーザーがボイスチャンネルに接続しているかチェック
 		if user.voice is None:
 			# ボイスチャンネルに参加していない場合はエラー
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
 			return
 		if not isinstance(user.voice.channel, discord.VoiceChannel):
 			# 参加しているチャンネルがボイスチャンネルではない場合はエラー
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.start.not_specified_voice_channel")))
 			return
 
 		voice_channel: discord.VoiceChannel = user.voice.channel
@@ -73,15 +89,16 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 		# サーバー内で既にクイズが開始されているかチェック
 		session = quiz_session_manager.get_session(guild.id)
 		if session:
-			await msg.edit(
-				embed=EmbedsTemplates.error(description=t("cmd.start.already_started", guild.get_channel(session.channel_id).mention))
+			await safe_edit(
+				msg,
+				embed=EmbedsTemplates.error(description=t("cmd.start.already_started", guild.get_channel(session.channel_id).mention)),
 			)
 			return
 
 		# セッション数制限チェック
 		max_sessions = int(getenv("MAX_SESSIONS", "0"))
 		if max_sessions > 0 and len(quiz_session_manager.sessions) >= max_sessions:
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.start.limit_reached")))
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.start.limit_reached")))
 			return
 
 		# 事前権限チェック（不足があれば詳細メッセージで中断）
@@ -90,21 +107,20 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			if missing:
 				descs = [t(f"cmd.play.error.missing_permissions.{m}", voice_channel.mention) for m in missing]
 				description = "- " + "\n- ".join(descs)
-				await msg.edit(embed=EmbedsTemplates.error(description=description))
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=description))
 				return
 		except Exception:
 			logger.error("事前権限チェック失敗")
 			logger.error(traceback.format_exc())
 
-		# VCへ接続
-		if voice_channel.guild.voice_client is not None:
-			# 既に接続している場合は一度切断する
-			await voice_channel.guild.voice_client.disconnect()
+		# VCへ接続 (残留接続があれば先に切断する)
+		if await _leave_vc(voice_channel.guild):
 			await asyncio.sleep(2)
 
 		try:
-			player = await voice_channel.connect(cls=mafic.Player)
+			player = await voice_channel.connect(cls=sonolink.Player)
 		except discord.errors.Forbidden:
+			await _leave_vc(voice_channel.guild)
 			try:
 				retry_missing = check_voice_permissions(voice_channel)
 			except Exception:
@@ -114,12 +130,14 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 				desc = "- " + "\n- ".join(descs)
 			else:
 				desc = t("cmd.play.error.voice_channel_forbidden", voice_channel.mention)
-			await msg.edit(embed=EmbedsTemplates.error(description=desc))
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=desc))
 			return
 		except discord.errors.NotFound:
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.error.view_channel_missing")))
+			await _leave_vc(voice_channel.guild)
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.error.view_channel_missing")))
 			return
 		except TimeoutError:
+			await _leave_vc(voice_channel.guild)
 			try:
 				retry_missing = check_voice_permissions(voice_channel)
 			except Exception:
@@ -135,53 +153,103 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 				desc = t("cmd.play.error.voice_channel_full", voice_channel.mention)
 			else:
 				desc = t("cmd.play.cannot_connect_voice_channel")
-			await msg.edit(embed=EmbedsTemplates.error(description=desc))
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=desc))
 			return
 		except Exception:
+			await _leave_vc(voice_channel.guild)
 			if (
 				voice_channel.user_limit is not None
 				and voice_channel.user_limit != 0
 				and len(voice_channel.members) >= voice_channel.user_limit
 			):
-				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.error.voice_channel_full", voice_channel.mention)))
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.error.voice_channel_full", voice_channel.mention)))
 			else:
-				await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
 			return
 
-		# 検索タイプ
-		search_type = mafic.SearchType.YOUTUBE_MUSIC
-		# search_type = mafic.SearchType[search_type]
+		# 検索ソース
+		search_source = sonolink.TrackSourceType.YOUTUBE_MUSIC
 
-		# プレイリストを検索
-		logger.debug(f"プレイリスト検索 - {search_type}: {query}")
-		try:
-			tracks = await player.fetch_tracks(query, search_type)
-		except Exception:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(
-				embed=EmbedsTemplates.internal_error(
-					description=t("cmd.play.tracks_fetch_error"),
-					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+		# 楽曲コンテナ (URLプレイリスト / DBプレイリスト共通)
+		tracks: TrackCollection | None = None
+
+		if query.startswith("playlist:"):
+			# DB に保存されたプレイリストを読み込む
+			playlist_id = query[len("playlist:") :]
+			doc = await DBManager.col_playlists.find_one({"_id": playlist_id, "guild_id": guild.id})
+			if doc is None:
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
+				return
+			playlist = Playlist.from_doc(doc)
+			if playlist is None:
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
+				return
+
+			# 各楽曲を再検索して sonolink.Playable を再構築する (取得失敗した楽曲はスキップ)
+			semaphore = asyncio.Semaphore(10)
+
+			async def fetch_playlist_track(uri: str) -> SonoPlayable | None:
+				async with semaphore:
+					try:
+						result = unpack_search(await client.sl_client.search_track(uri, source=search_source))
+					except Exception:
+						logger.exception("プレイリストの楽曲取得失敗: %s", uri)
+						return None
+					if result is None:
+						logger.warning("プレイリストの楽曲が見つかりません: %s", uri)
+						return None
+					if isinstance(result, SonoPlaylist):
+						candidates = result.tracks
+					elif isinstance(result, SonoPlayable):
+						candidates = [result]
+					else:
+						candidates = result
+					if not candidates:
+						logger.warning("プレイリストの楽曲が見つかりません: %s", uri)
+						return None
+					return next((t for t in candidates if t.uri == uri), candidates[0])
+
+			# ponytail: 全曲を並列再検索 (上限500曲)。開始が数十秒かかる場合は上限引き下げか track_id 保存で緩和する
+			playlist_tracks = [t for t in await asyncio.gather(*(fetch_playlist_track(t.uri) for t in playlist.tracks)) if t is not None]
+			tracks = TrackCollection(tracks=playlist_tracks, name=playlist.name, plugin_info=None)
+			if not tracks.tracks:
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+				return
+		else:
+			# プレイリストを検索
+			logger.debug("プレイリスト検索 - %s: %s", search_source, query)
+			try:
+				playlist_result = unpack_search(await client.sl_client.search_track(query, source=search_source))
+			except Exception:
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(
+					msg,
+					embed=EmbedsTemplates.internal_error(
+						description=t("cmd.play.tracks_fetch_error"),
+						error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+					),
 				)
-			)
-			return
+				return
 
-		# プレイリスト (楽曲) が見つからない場合
-		if not tracks:
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
-			return
-		# 指定されたクエリーがプレイリストではない場合
-		if isinstance(tracks, list):
-			if voice_channel.guild.voice_client:
-				# 切断する
-				await voice_channel.guild.voice_client.disconnect()
-			await msg.edit(embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
-			return
+			# プレイリスト (楽曲) が見つからない場合
+			if not playlist_result:
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+				return
+			# 指定されたクエリーがプレイリストではない場合
+			if not isinstance(playlist_result, SonoPlaylist):
+				await _leave_vc(voice_channel.guild)
+				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
+				return
+
+			tracks = TrackCollection(
+				tracks=playlist_result.tracks,
+				name=playlist_result.name,
+				plugin_info=playlist_result.extras,
+			)
 
 		# クイズセッションを新規作成
 		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query, text_channel_id=text_channel_id)
@@ -199,27 +267,30 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			await session.add_player(u)
 
 		# クイズ準備完了メッセージ送信
-		await msg.edit(
+		await safe_edit(
+			msg,
 			embed=EmbedsTemplates.info(
 				title=t("cmd.play.preparing_complete.title"),
 				description=t("cmd.play.preparing_complete.description", voice_channel.mention),
 				icon="☑️",
-			)
+			),
 		)
 		# クイズ開始
 		play_result = await session.play(tracks, q_count, user.id, query)
 
 		# 内部エラー
 		if isinstance(play_result, str):
-			await msg.edit(embed=EmbedsTemplates.internal_error(error_code=play_result))
+			await safe_edit(msg, embed=EmbedsTemplates.internal_error(error_code=play_result))
 
 		# クイズセッションを終了する
 		await quiz_session_manager.end_session(session.guild_id)
 
 		# ボイスチャンネルから切断できていない場合は念の為切断する
-		if voice_channel is not None and voice_channel.guild.voice_client is not None:
-			await voice_channel.guild.voice_client.disconnect()
+		if voice_channel is not None:
+			await _leave_vc(voice_channel.guild)
 
+	except asyncio.CancelledError:
+		raise
 	except Exception:
 		try:
 			# クイズセッションを終了する
@@ -229,10 +300,12 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			logger.error("クイズ実行エラー - クイズ終了失敗")
 			logger.error(traceback.format_exc())
 		err_code = await DebugLogger.report_internal_error("クイズ実行エラー\n\n" + traceback.format_exc())
+		# セッション確立前の失敗でもVC残留があり得るため best-effort で切断する
+		await _leave_vc(guild)
 		try:
 			if inter.channel is not None and not isinstance(
 				inter.channel, (discord.CategoryChannel, discord.ForumChannel, discord.MediaChannel)
 			):
-				await inter.channel.send(embed=EmbedsTemplates.internal_error(error_code=err_code))
+				await safe_send(inter.channel, embed=EmbedsTemplates.internal_error(error_code=err_code))
 		except Exception:
 			logger.exception("Internal Error Message Send Failed")

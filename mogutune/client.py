@@ -1,15 +1,17 @@
 import json
 import logging
+import os
 import sys
 import traceback
 from asyncio import sleep
 from os import getenv
 
 import discord
-import mafic
+import sonolink
 from discord.ext import commands, tasks
 from mogutune_core.db import DBManager
 from pycord.localizer import t
+from sonolink.models import InactivitySettings
 
 from mogutune.app import App
 from mogutune.debug_logger import DebugLogger
@@ -29,29 +31,52 @@ class Bot(commands.Bot):
 		intents = discord.Intents.default()
 		intents.voice_states = True
 
-		# Lavalink
-		self.pool = mafic.NodePool(self)
-		self.loop.create_task(self.add_nodes())
+		# Lavalink (SonoLink)
+		self.sl_client: sonolink.Client = sonolink.Client(self, framework="pycord")
+		self.sl_started = False
+		self._register_lavalink_node()
 
-	async def add_nodes(self) -> None:
-		"""環境変数からLavalinkのノード情報を読み込んで追加する"""
+	def _register_lavalink_node(self) -> None:
+		"""環境変数からLavalinkのノード情報を読み込んで登録する (接続は on_connect で行う)"""
 		host = getenv("LAVALINK_HOST", "localhost")
 		port = int(getenv("LAVALINK_PORT", "2333"))
 		password = getenv("LAVALINK_PASSWORD", "youshallnotpass")
 		secure = getenv("LAVALINK_SECURE", "false").lower() == "true"
 		label = getenv("LAVALINK_LABEL", host)
 
+		# sonolink 1.3.0 の create_node には secure 引数がないため、TLS は URI 形式で指定する
+		# 自動切断 (Inactivity) は無効化し、切断管理はクイズセッション側に一任する
+		# retries 未指定だと node.connect() が無限リトライして on_connect をブロックするため有限回にする
+		if secure:
+			self.sl_client.create_node(
+				uri=f"https://{host}:{port}",
+				password=password,
+				id=label,
+				retries=3,
+				inactivity_settings=InactivitySettings(timeout=None),
+			)
+		else:
+			self.sl_client.create_node(
+				host=host,
+				port=port,
+				password=password,
+				id=label,
+				retries=3,
+				inactivity_settings=InactivitySettings(timeout=None),
+			)
+		logger.info("Lavalink ノードを登録: %s:%d (Secure: %s, ID: %s)", host, port, secure, label)
+
+	async def start_lavalink_nodes(self) -> None:
+		"""登録済み Lavalink ノードへ接続する (on_connect から呼び出す)"""
 		max_attempts = 5
 		for attempt in range(1, max_attempts + 1):
 			try:
-				logger.info("Lavalink ノードを追加: %s:%d (Secure: %s) [試行 %d/%d]", host, port, secure, attempt, max_attempts)
-				await self.pool.create_node(
-					host=host,
-					port=port,
-					label=label,
-					password=password,
-					secure=secure,
-				)
+				logger.info("Lavalink ノードへ接続 [試行 %d/%d]", attempt, max_attempts)
+				await self.sl_client.start()
+				# sonolink の start() は接続失敗を例外で通知しない (内部で握りつぶす) ため、接続結果を直接検証する
+				if not any(n.is_connected for n in self.sl_client.nodes):
+					raise RuntimeError("Lavalink ノードが接続されていません")
+				self.sl_started = True
 				break
 			except Exception as e:
 				logger.warning("Lavalink ノード接続失敗 [試行 %d/%d]: %s", attempt, max_attempts, e)
@@ -60,7 +85,8 @@ class Bot(commands.Bot):
 				else:
 					logger.exception("Lavalink ノードへの接続に %d 回失敗しました", max_attempts)
 					await KumaSan.ping(state="error", message=f"Lavalink ノードへの接続に {max_attempts} 回失敗しました")
-					sys.exit(1)
+					# イベントタスク内では sys.exit がプロセスを終了させないため os._exit で確実に終了する
+					os._exit(1)
 
 
 intents = discord.Intents.default()
@@ -91,6 +117,29 @@ async def send_heartbeat() -> None:
 @tasks.loop(hours=1)
 async def update_presets() -> None:
 	await client.get_cog("QuizCommands").load_presets(i18n)
+
+
+# 5分に1回 Lavalink ノードの接続を確認し、全断なら再接続を試みる (起動時失敗は終了済みのため警告に留める)
+@tasks.loop(minutes=5)
+async def check_lavalink_nodes() -> None:
+	if not client.sl_started:
+		return
+	try:
+		nodes = list(client.sl_client.nodes)
+	except Exception:
+		logger.exception("Lavalink ノード一覧の取得に失敗")
+		return
+	if not nodes:
+		# ノード登録自体がない状態は通常発生しない (start() も対象がないため再接続できない)
+		logger.warning("Lavalink ノードが登録されていません")
+		return
+	if all(n.is_connected for n in nodes):
+		return
+	logger.warning("Lavalink ノードが未接続のため再接続を試みます")
+	try:
+		await client.sl_client.start()
+	except Exception:
+		logger.exception("Lavalink ノードの再接続に失敗")
 
 
 # アプリケーションコマンド実行時のイベント
@@ -191,12 +240,14 @@ async def on_application_command_error(
 		)
 
 
-# 接続完了時
-# @client.event
-# async def on_connect() -> None:
-# 	logger.info("接続完了")
-# 	# await client.load_extension("cogs.commands")
-# 	# await client.tree.sync(guild=discord.Object(id=1118692349250392184))
+# 接続確立時 (SonoLink のノード接続は on_ready ではなく on_connect で行う)
+@client.listen()
+async def on_connect() -> None:
+	# 再接続時はスキップする
+	if client.sl_started:
+		return
+	logger.info("接続完了")
+	await client.start_lavalink_nodes()
 
 
 # 準備完了時
@@ -242,6 +293,9 @@ async def on_ready() -> None:
 	# 生存確認ループ開始
 	if getenv("UPTIME_KUMA_PUSH_URL", "") != "":
 		send_heartbeat.start()
+
+	# Lavalink 接続監視ループ開始
+	check_lavalink_nodes.start()
 
 
 def run() -> None:

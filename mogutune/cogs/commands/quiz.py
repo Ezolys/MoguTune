@@ -1,5 +1,6 @@
 import logging
 import re
+import traceback
 from typing import get_args
 
 import discord
@@ -15,6 +16,9 @@ from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
 
+AUTOCOMPLETE_LABEL_MAX = 100
+"""オートコンプリートの選択肢ラベルの最大文字数"""
+
 
 class QuizCommands(discord.Cog):
 	def __init__(self, bot: discord.Bot) -> None:
@@ -25,6 +29,7 @@ class QuizCommands(discord.Cog):
 
 	async def load_presets(self, i18n: Localization) -> None:
 		logger.info("プレイリストプリセットを読み込み")
+		self.i18n = i18n
 
 		# データベースから最新のプリセットを取得して整形する
 		presets = await DBManager.col_presets.find().to_list(length=100)
@@ -56,11 +61,26 @@ class QuizCommands(discord.Cog):
 					)
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
-		"""プレイリストのプリセットをDiscordのコマンドオプションの選択肢として取得する"""
+		"""プレイリストのプリセットとサーバーのプレイリストをDiscordのコマンドオプションの選択肢として取得する"""
 		# 入力内容が0文字の場合のみ一覧を返す
 		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
 		if ctx.value == "":
-			return self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"])
+			# キャッシュのリストを直接変更しないようコピーしてからプレイリストを追加する
+			choices = list(self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"]))
+			# サーバーに保存されたプレイリストを追加する (value は `playlist:<id>` 形式)
+			guild_id = ctx.interaction.guild_id
+			if guild_id is not None:
+				docs = await DBManager.col_playlists.find({"guild_id": guild_id}).to_list(length=100)
+				lang = str(ctx.interaction.locale) if ctx.interaction.locale else "en-GB"
+				for info in docs:
+					name = info.get("name", "")
+					desc = info.get("description", "")
+					title_desc = f"{name} | {desc}" if isinstance(desc, str) and desc != "" else name
+					label = f"[{self.i18n.translate(text='cmd.play.query_playlist', lang=lang)}] " + title_desc
+					if len(label) > AUTOCOMPLETE_LABEL_MAX:
+						label = label[:AUTOCOMPLETE_LABEL_MAX]
+					choices.append(discord.OptionChoice(name=label, value="playlist:" + str(info.get("_id", ""))))
+			return choices
 		choice = get_url_autocomplete_choice(ctx.value, str(ctx.interaction.locale) if ctx.interaction else None)
 		if choice is not None:
 			label, value = choice
@@ -96,15 +116,6 @@ class QuizCommands(discord.Cog):
 		# 	str,
 		# 	required=False,
 		# 	autocomplete=get_presets,
-		# ),  # pyright: ignore[reportInvalidTypeForm]
-		# search_type: discord.Option(
-		# 	input_type=str,
-		# 	required=False,
-		# 	default=mafic.SearchType.YOUTUBE.name,
-		# 	choices=[
-		# 		discord.OptionChoice("Spotify", mafic.SearchType.SPOTIFY_SEARCH.name),
-		# 		discord.OptionChoice("YouTube", mafic.SearchType.YOUTUBE.name),
-		# 	],
 		# ),  # pyright: ignore[reportInvalidTypeForm]
 		q_count: discord.Option(int, min_value=1, max_value=50, required=False, default=10),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
@@ -156,7 +167,21 @@ class QuizCommands(discord.Cog):
 				ephemeral=True,
 			)
 		else:
-			await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.end.quiz_not_started")), ephemeral=True)
+			# セッションはないがVCに残留接続がある場合は救済切断する (準備失敗時の居座り対策)
+			voice_client = ctx.guild.voice_client
+			if voice_client is not None:
+				try:
+					await voice_client.disconnect()
+				except Exception:
+					logger.exception("残留VC接続の切断に失敗")
+					await ctx.respond(
+						embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
+						ephemeral=True,
+					)
+					return
+				await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.end.stale_disconnected")), ephemeral=True)
+			else:
+				await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.end.quiz_not_started")), ephemeral=True)
 
 
 def setup(bot: discord.Bot) -> None:

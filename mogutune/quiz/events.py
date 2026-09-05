@@ -1,10 +1,10 @@
-import json
 import logging
 import traceback
 
 import discord
-import mafic
+import sonolink
 from mogutune_core.roster import RemoveReason
+from sonolink.gateway import TrackEndEvent, TrackExceptionEvent, TrackStartEvent
 
 from mogutune.client import client
 from mogutune.quiz.manager import quiz_session_manager
@@ -48,23 +48,23 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 
 # トラック再生例外イベント
 @client.listen()
-async def on_track_exception(event: mafic.TrackExceptionEvent) -> None:
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.error("トラック再生例外: %s", event.exception)
+async def on_sonolink_track_exception(player: sonolink.Player, payload: TrackExceptionEvent) -> None:
+	guild_id = player.guild.id
+	logger.error("トラック再生例外: %s", payload.exception)
 	session = quiz_session_manager.get_session(guild_id)
 	if session is None:
 		return
 
-	# SFX再生中の例外は待機を解放して復帰を試みる
-	if session.is_playing_sfx:
-		logger.warning("SFXの再生に失敗しました: %s", json.dumps(event.exception))
+	# SFX再生中の例外は待機を解放して復帰を試みる (実際に SFX を再生しているトラックの例外のみ)
+	if session.is_playing_sfx and session.sfx_track_playing is not None and payload.track.encoded == session.sfx_track_playing.encoded:
+		logger.warning("SFXの再生に失敗しました: %s", payload.exception)
 		if session.restore_track_after_sfx and session.original_track_before_sfx:
 			try:
 				await session.pl.play(
 					session.original_track_before_sfx,
-					start_time=session.original_position_before_sfx,
+					start=session.original_position_before_sfx,
 					volume=session.PL_VOLUME,
+					paused=not session.was_playing_before_sfx,
 				)
 				if not session.was_playing_before_sfx:
 					await session.pl.pause()
@@ -74,37 +74,36 @@ async def on_track_exception(event: mafic.TrackExceptionEvent) -> None:
 		session.SFX_FINISHED.set()
 		return
 
-	if not session.is_question_track_exception_target(event.track):
+	if not session.is_question_track_exception_target(payload.track):
 		return
 
-	logger.warning("問題の再生に失敗したためスキップします: %s", session.format_track_title(event.track))
-	logger.warning("例外: %s", json.dumps(event.exception))
-	await session.skip_current_q_by_track_exception(event.track)
+	logger.warning("問題の再生に失敗したためスキップします: %s", session.format_track_title(payload.track))
+	logger.warning("例外: %s", payload.exception)
+	await session.skip_current_q_by_track_exception(payload.track)
 
 
 # 再生開始時イベント
 @client.listen()
-async def on_track_start(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生開始イベント: {guild_id}")
+async def on_sonolink_track_start(player: sonolink.Player, payload: TrackStartEvent):
+	guild_id = player.guild.id
+	logger.debug("再生開始イベント: %s (%s)", guild_id, payload.track.title)
 
 
 # 再生終了時イベント
 @client.listen()
-async def on_track_end(event: mafic.TrackEndEvent):
-	assert isinstance(event.player, mafic.Player)
-	guild_id = event.player.guild.id
-	logger.debug(f"再生終了イベント: {guild_id} ({event.reason})")
+async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent):
+	guild_id = player.guild.id
+	logger.debug("再生終了イベント: %s (%s)", guild_id, payload.reason)
 	session = quiz_session_manager.get_session(guild_id)
 	if session is None:
 		return
 
-	# SFXの再生が終了した場合
-	if session.is_playing_sfx:
+	# SFXの再生が終了した場合 (実際に SFX を再生しているトラックの終了のみ)
+	# それ以外 (resolve 待ち中の問題曲の終了など) は通常のクイズ楽曲処理へ落とす
+	if session.is_playing_sfx and session.sfx_track_playing is not None and payload.track.encoded == session.sfx_track_playing.encoded:
 		logger.debug(f"SFX再生終了イベント: {guild_id}")
 		# REPLACED の場合は無視する (original_track の有無に関わらず)
-		if event.reason == mafic.EndReason.REPLACED:
+		if payload.reason == sonolink.TrackEndReason.REPLACED:
 			logger.debug("- REPLACEDのため無視")
 			return
 		# 元の楽曲の再生を再開
@@ -113,8 +112,9 @@ async def on_track_end(event: mafic.TrackEndEvent):
 				# 元の楽曲を復帰
 				await session.pl.play(
 					session.original_track_before_sfx,
-					start_time=session.original_position_before_sfx,
+					start=session.original_position_before_sfx,
 					volume=session.PL_VOLUME,
+					paused=not session.was_playing_before_sfx,
 				)
 
 				# SFX再生前に一時停止していた場合は一時停止状態に戻す
@@ -132,8 +132,9 @@ async def on_track_end(event: mafic.TrackEndEvent):
 
 	# クイズの楽曲が終了した場合、次の問題へ進む
 	# 誰も正解しないまま再生が終わった場合は正解情報を送信してサビを再生する（スキップと同様）
-	if event.reason == mafic.EndReason.FINISHED:
+	if payload.reason == sonolink.TrackEndReason.FINISHED:
 		if session.can_answered:
-			await session.reveal_answer_on_timeout(event.track)
-		else:
+			await session.reveal_answer_on_timeout(payload.track)
+		# 正解・スキップ後のリプレイは次ボタン待ち (自然終了での自動進行を防ぐ)
+		elif not session.expect_user_next:
 			session.NEXT.set()

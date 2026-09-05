@@ -16,6 +16,12 @@ wheels/
 
 .env
 
+# SFX audio files (host-placed, mounted into Lavalink)
+# NOTE: paths in SFX_QUIZ_* must be inside the Lavalink container (see compose.yml).
+/sfx/*
+!/sfx/.gitkeep
+
 # Local dev / not for public
 mogutune/activity/
 tests/
+.opencode/
