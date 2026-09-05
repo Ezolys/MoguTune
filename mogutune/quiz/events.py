@@ -44,6 +44,11 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
 			logger.debug("- オーナー退出: クイズ終了")
 			await session.end()
 		await session.remove_queue(member.id)
+		# 準備完了票と進行投票を取り消す
+		# ponytail: しきい値の再評価は次の投票クリック時のみ行う (退出のたびに再評価しない)
+		session.ready_votes.discard(member.id)
+		if session.vote_progression is not None:
+			session.vote_progression.unvote_on_leave(member.id)
 
 
 # トラック再生例外イベント

@@ -64,6 +64,8 @@ class SettingsCommands(discord.Cog):
 		self,
 		ctx: discord.ApplicationContext,
 		artist_in_answers: discord.Option(bool, required=False),  # pyright: ignore[reportInvalidTypeForm]
+		progression_mode: discord.Option(str, choices=["host", "vote"], required=False),  # pyright: ignore[reportInvalidTypeForm]
+		ready_threshold: discord.Option(str, choices=["all", "majority"], required=False),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
 		"""設定を変更する"""
 		# ギルド設定のみを対象とする (guild_only により実行時は必ず int)
@@ -82,6 +84,10 @@ class SettingsCommands(discord.Cog):
 		kwargs: dict[str, object] = {}
 		if artist_in_answers is not None:
 			kwargs["artist_in_answers"] = artist_in_answers
+		if progression_mode is not None:
+			kwargs["progression_mode"] = progression_mode
+		if ready_threshold is not None:
+			kwargs["ready_threshold"] = ready_threshold
 		if not kwargs:
 			await ctx.respond(
 				embed=EmbedsTemplates.warning(description=t("cmd.settings.set.no_options")),
@@ -117,6 +123,8 @@ class SettingsCommands(discord.Cog):
 		label = str(value)
 		if isinstance(value, bool):
 			label = t("cmd.settings.value.enabled") if value else t("cmd.settings.value.disabled")
+		elif isinstance(value, str):
+			label = t(f"cmd.settings.{field.name}.{value}")
 		return f"**{t(f'cmd.settings.item.{field.name}')}**: {label}"
 
 

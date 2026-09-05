@@ -10,8 +10,9 @@ from os import getenv
 import discord
 import sonolink
 from discord.utils import MISSING
-from mogutune_core import answers, ranking, trackpool
+from mogutune_core import Mode, answers, ranking, trackpool
 from mogutune_core.models import is_same_track
+from mogutune_core.progression import VoteProgression
 from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
@@ -31,6 +32,15 @@ logger.setLevel(logging.DEBUG)
 
 # SFX に許可する Lavalink 内ディレクトリ (local ソースで identifier 解決する)
 SFX_LOCAL_DIR = "/opt/Lavalink/sfx/"
+
+
+def ready_threshold_met(votes: int, players: int, threshold: str) -> bool:
+	"""準備完了条件を満たしたかを返す (過半数は厳密に votes > players * 0.5)"""
+	if players <= 0:
+		return False
+	if threshold == "all":
+		return votes >= players
+	return votes > players * 0.5
 
 
 @dataclass
@@ -125,6 +135,19 @@ class QuizSession:
 	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
 	expect_user_next: bool = False
 	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
+
+	READY: asyncio.Event = field(default_factory=asyncio.Event)
+	"""準備完了待ちイベント"""
+	READY_TIMEOUT_SECONDS: int = 90
+	"""準備完了待ちのタイムアウト (秒)"""
+	ready_votes: set[int] = field(default_factory=set)
+	"""準備完了を宣言したユーザーID"""
+	ready_threshold: str = "majority"
+	"""準備完了条件 ("all" | "majority")。play() 開始時に設定からスナップショットする"""
+	progression_mode: Mode = Mode.VOTE
+	"""進行モード。play() 開始時に設定からスナップショットする"""
+	vote_progression: VoteProgression | None = None
+	"""投票による進行 (VOTE モードのみ生成)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -435,6 +458,8 @@ class QuizSession:
 		self.restore_track_after_sfx = True
 		self.sfx_track_playing = None
 		self.answer_pause_position = 0
+		self.ready_votes.clear()
+		self.vote_progression = None
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -597,10 +622,12 @@ class QuizSession:
 
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
+		# 準備完了待機中に終了された場合も即座に解除する
+		self.READY.set()
 
 	async def play(self, tracks: TrackCollection, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
-		from mogutune.quiz.views import QuizAnswerButtonView, QuizReplayButtonView  # noqa: PLC0415
+		from mogutune.quiz.views import QuizAnswerButtonView, QuizReadyButtonView, QuizReplayButtonView  # noqa: PLC0415
 
 		try:
 			self.playing = True
@@ -628,6 +655,12 @@ class QuizSession:
 					logger.error("view_channel_missing 通知失敗")
 					logger.error(traceback.format_exc())
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
+
+			# 設定を読み込み、クイズ中の設定はスナップショットする (途中変更は次回以降のクイズに反映)
+			settings = await guild_settings_manager.get(self.guild_id)
+			self.ready_threshold = settings.ready_threshold
+			self.progression_mode = Mode(settings.progression_mode)
+			self.vote_progression = VoteProgression(threshold_ratio=0.5) if self.progression_mode is Mode.VOTE else None
 
 			# 送信権限チェック（VCテキストチャットへの送信可否）
 			try:
@@ -724,20 +757,48 @@ class QuizSession:
 				playlist_title = playlist_title_prefix + ": **" + tracks.name + "**"
 
 			# 埋め込みメッセージを生成
+			description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
+			# 準備完了の案内行を追記 (ループ内の毎問更新では元の description に戻る)
+			description += "\n\n" + t("msg.q.ready.hint", t(f"cmd.settings.ready_threshold.{self.ready_threshold}"))
 			start_msg_embed = EmbedsTemplates.info(
 				title=t("msg.q.init.title"),
-				description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
+				description=description,
 				icon="▶️",
 			)
 			# ジャケットを設定
 			start_msg_embed.set_thumbnail(url=artwork_url)
 
-			# クイズ開始メッセージを送信
-			start_msg = await self._send_to_vc(embed=start_msg_embed)
+			# クイズ開始メッセージを送信 (準備完了ボタン付き)
+			start_msg = await self._send_to_vc(embed=start_msg_embed, view=QuizReadyButtonView(self.guild_id))
 			if start_msg is None:
 				self.playing = False
 				self.reset()
 				return False
+
+			# 準備完了待ち (条件成立またはタイムアウトまで)
+			self.READY.clear()
+			try:
+				await asyncio.wait_for(self.READY.wait(), timeout=self.READY_TIMEOUT_SECONDS)
+			except TimeoutError:
+				await self._send_to_vc(
+					embed=EmbedsTemplates.warning(
+						title=t("msg.q.ready_timeout.title"),
+						description=t("msg.q.ready_timeout.description"),
+						icon="⏹️",
+					)
+				)
+				self.playing = False
+				self.reset()
+				return False
+			if not self.playing:
+				return False  # 待機中に end() された場合 (全員退出など)
+
+			# 準備完了成立後は start_msg から準備完了ボタンを外す
+			try:
+				await start_msg.edit(view=None)
+			except discord.errors.NotFound:
+				pass
+
 			# 問題開始メッセージを送信
 			q_msg = await self._send_to_vc(
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
@@ -782,6 +843,9 @@ class QuizSession:
 
 				self.NEXT.clear()
 				self.expect_user_next = False
+				# 前の問題の進行投票をリセットする
+				if self.vote_progression is not None:
+					self.vote_progression.reset()
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
@@ -1113,3 +1177,18 @@ class QuizSession:
 		player.incorrect()
 		self.ANSWERED.set()
 		return None
+
+
+if __name__ == "__main__":
+	# ready_threshold_met の純粋ロジックの自己チェック
+	# majority: 厳密に votes > players * 0.5
+	assert ready_threshold_met(0, 3, "majority") is False  # noqa: S101
+	assert ready_threshold_met(1, 3, "majority") is False  # noqa: S101
+	assert ready_threshold_met(2, 3, "majority") is True  # noqa: S101
+	assert ready_threshold_met(1, 2, "majority") is False  # noqa: S101
+	assert ready_threshold_met(1, 1, "majority") is True  # noqa: S101
+	assert ready_threshold_met(0, 0, "majority") is False  # noqa: S101
+	# all: 全員
+	assert ready_threshold_met(2, 3, "all") is False  # noqa: S101
+	assert ready_threshold_met(3, 3, "all") is True  # noqa: S101
+	print("ready_threshold_met self-check passed")  # noqa: T201
