@@ -510,8 +510,8 @@ class QuizSession:
 			self.sfx_track_playing = track
 			await self.pl.play(track, volume=self.PL_SFX_VOLUME, paused=False)
 
-			# SFXの再生終了を待つ
-			await self.SFX_FINISHED.wait()
+			# SFXの再生終了を待つ (イベント喪失時の永久停止を防ぐためタイムアウト付き。TimeoutError は下の except で復帰処理が走る)
+			await asyncio.wait_for(self.SFX_FINISHED.wait(), timeout=track.length / 1000 + 10)
 
 		except Exception:
 			logger.error("SFXの再生に失敗しました。")
@@ -626,6 +626,8 @@ class QuizSession:
 		self.NEXT.set()
 		# 準備完了待機中に終了された場合も即座に解除する
 		self.READY.set()
+		# SFX 再生待ちで停止している場合も解除する (イベント喪失時の救済)
+		self.SFX_FINISHED.set()
 
 	async def play(self, tracks: TrackCollection, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
@@ -855,6 +857,9 @@ class QuizSession:
 
 				# SFX
 				await self.play_sfx(SFX.Q)
+				# SFX 再生中に end() された場合は問題を開始しない
+				if not self.playing:
+					break
 
 				# 問題開始時刻を更新
 				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)

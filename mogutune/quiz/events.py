@@ -61,7 +61,12 @@ async def on_sonolink_track_exception(player: sonolink.Player, payload: TrackExc
 		return
 
 	# SFX再生中の例外は待機を解放して復帰を試みる (実際に SFX を再生しているトラックの例外のみ)
-	if session.is_playing_sfx and session.sfx_track_playing is not None and payload.track.encoded == session.sfx_track_playing.encoded:
+	# encoded は再生位置 (position) を含むため終了時点で値が変わり照合できない。identifier は位置に依存しない
+	if (
+		session.is_playing_sfx
+		and session.sfx_track_playing is not None
+		and payload.track.identifier == session.sfx_track_playing.identifier
+	):
 		logger.warning("SFXの再生に失敗しました: %s", payload.exception)
 		if session.restore_track_after_sfx and session.original_track_before_sfx:
 			try:
@@ -105,7 +110,12 @@ async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent)
 
 	# SFXの再生が終了した場合 (実際に SFX を再生しているトラックの終了のみ)
 	# それ以外 (resolve 待ち中の問題曲の終了など) は通常のクイズ楽曲処理へ落とす
-	if session.is_playing_sfx and session.sfx_track_playing is not None and payload.track.encoded == session.sfx_track_playing.encoded:
+	# encoded は再生位置 (position) を含むため終了時点で値が変わり照合できない。identifier は位置に依存しない
+	if (
+		session.is_playing_sfx
+		and session.sfx_track_playing is not None
+		and payload.track.identifier == session.sfx_track_playing.identifier
+	):
 		logger.debug(f"SFX再生終了イベント: {guild_id}")
 		# REPLACED の場合は無視する (original_track の有無に関わらず)
 		if payload.reason == sonolink.TrackEndReason.REPLACED:
