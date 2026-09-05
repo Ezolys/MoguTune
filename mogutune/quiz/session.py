@@ -550,9 +550,11 @@ class QuizSession:
 			if posixpath.normpath(query) != query or not query.startswith(SFX_LOCAL_DIR):
 				logger.warning("SFX再生中止 - 許可されていないパスです: %s", query)
 				return None
-			# ローカルファイルは Lavalink の local ソース (local: プレフィックス) で解決する
-			# (search_track のデフォルト source は ytsearch のため、パスを渡すと検索として解釈される)
-			sfx_result = unpack_search(await client.sl_client.search_track(query, source="local"))
+			# ローカルファイルは Lavalink v4 の local ソースで解決する (identifier = 生の絶対パス)。
+			# sonolink の source="local" は identifier に local: プレフィックスを付けてしまい、
+			# LavaPlayer 側で除去されずファイル不在扱いになる。また Client.search_track の
+			# デフォルト source は ytsearch のため、source=None を明示してパスを素通しする
+			sfx_result = unpack_search(await client.sl_client.search_track(query, source=None))
 		else:
 			sfx_result = unpack_search(await client.sl_client.search_track(query))
 		if isinstance(sfx_result, SonoPlayable):
