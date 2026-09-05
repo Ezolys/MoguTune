@@ -1,5 +1,6 @@
 import logging
 import re
+import traceback
 from typing import get_args
 
 import discord
@@ -116,15 +117,6 @@ class QuizCommands(discord.Cog):
 		# 	required=False,
 		# 	autocomplete=get_presets,
 		# ),  # pyright: ignore[reportInvalidTypeForm]
-		# search_type: discord.Option(
-		# 	input_type=str,
-		# 	required=False,
-		# 	default=mafic.SearchType.YOUTUBE.name,
-		# 	choices=[
-		# 		discord.OptionChoice("Spotify", mafic.SearchType.SPOTIFY_SEARCH.name),
-		# 		discord.OptionChoice("YouTube", mafic.SearchType.YOUTUBE.name),
-		# 	],
-		# ),  # pyright: ignore[reportInvalidTypeForm]
 		q_count: discord.Option(int, min_value=1, max_value=50, required=False, default=10),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
 		if ctx.guild is None:
@@ -175,7 +167,21 @@ class QuizCommands(discord.Cog):
 				ephemeral=True,
 			)
 		else:
-			await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.end.quiz_not_started")), ephemeral=True)
+			# セッションはないがVCに残留接続がある場合は救済切断する (準備失敗時の居座り対策)
+			voice_client = ctx.guild.voice_client
+			if voice_client is not None:
+				try:
+					await voice_client.disconnect()
+				except Exception:
+					logger.exception("残留VC接続の切断に失敗")
+					await ctx.respond(
+						embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
+						ephemeral=True,
+					)
+					return
+				await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.end.stale_disconnected")), ephemeral=True)
+			else:
+				await ctx.respond(embed=EmbedsTemplates.error(description=t("cmd.end.quiz_not_started")), ephemeral=True)
 
 
 def setup(bot: discord.Bot) -> None:

@@ -2,8 +2,8 @@ import asyncio
 import logging
 
 import discord
-import mafic
 from pycord.localizer import t
+from sonolink.models import Playable as SonoPlayable
 
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.debug_logger import DebugLogger
@@ -66,7 +66,7 @@ class QuizNextQButtonView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		# 次の問題があるかどうかに応じてラベルと絵文字を設定
@@ -138,12 +138,13 @@ class QuizNextQButtonView(discord.ui.View):
 		except discord.errors.NotFound:
 			pass
 		# 再生停止 (=次の問題へ)
+		self.session.expect_user_next = False
 		await self.session.pl.stop()
 		self.session.NEXT.set()
 
 
 class QuizAnswerSelectView(discord.ui.View):
-	def __init__(self, session_id: int, answer_tracks: list[mafic.Track], *, with_author: bool = False, **kwargs) -> None:
+	def __init__(self, session_id: int, answer_tracks: list[SonoPlayable], *, with_author: bool = False, **kwargs) -> None:
 		super().__init__(**kwargs)
 
 		self.session_id = session_id
@@ -151,7 +152,7 @@ class QuizAnswerSelectView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		logger.debug("Answer Select Options")
@@ -159,8 +160,10 @@ class QuizAnswerSelectView(discord.ui.View):
 			logger.debug(f"{at.title}: {at.uri}")
 
 		self.answer_select = discord.ui.Select(discord.ComponentType.string_select)
-		# 解答候補一覧
+		# 解答候補一覧 (uri がないトラックは SelectOption の value にできないため除外)
 		for tr in answer_tracks:
+			if tr.uri is None:
+				continue
 			_title = self.session.format_track_title(tr, max_length=90, with_author=with_author)
 			self.answer_select.options.append(
 				discord.SelectOption(
@@ -256,18 +259,23 @@ class QuizAnswerSelectView(discord.ui.View):
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- 正解後再生開始")
-			_position = 0
-			_uri = await self.session.resolve_youtube_track_uri(_track)
-			if _uri is None:
-				_uri = _track.uri
-
-			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
-				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
-				logger.info(f"Play Position: {_position}")
-				if _position is None:
-					_position = 0
-			logger.debug(f"Resuming track: {_track.uri} at {_position}")
-			await self.session.pl.play(_track, start_time=_position, volume=self.session.PL_VOLUME)
+			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ)
+			self.session.expect_user_next = True
+			try:
+				_position = 0
+				_uri = await self.session.resolve_youtube_track_uri(_track)
+				if _uri is None:
+					_uri = _track.uri
+				if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+					_position = await YTMostReplayedAPI.get_chorus_info(_uri)
+					logger.info("Play Position: %s", _position)
+					if _position is None:
+						_position = 0
+				logger.debug("Resuming track: %s at %s", _track.uri, _position)
+				await self.session.pl.play(_track, start=_position, volume=self.session.PL_VOLUME, paused=False)
+			except Exception:
+				logger.exception("正解後の楽曲再生に失敗しました")
+				self.session.NEXT.set()
 
 			# 次の問題へボタンを有効化
 			next_q_button.enable_all_items()
@@ -282,7 +290,7 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# セッションが存在するかチェック
 		if self.session is None:
-			asyncio.run(DebugLogger.report_internal_error("QuizAnswerSelectView.session is None"))
+			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
 		# 解答ボタン
@@ -428,18 +436,23 @@ class QuizAnswerButtonView(discord.ui.View):
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- スキップ後再生開始")
-			_position = 0
-			_uri = await self.session.resolve_youtube_track_uri(self.session.pl.current)
-			if _uri is None:
-				_uri = self.session.pl.current.uri
-
-			if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
-				_position = await YTMostReplayedAPI.get_chorus_info(_uri)
-				logger.info(f"Play Position: {_position}")
-				if _position is None:
-					_position = 0
-			logger.debug(f"Resuming track (Skip): {pl_current.uri} at {_position}")
-			await self.session.pl.play(pl_current, start_time=_position, volume=self.session.PL_VOLUME)
+			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ)
+			self.session.expect_user_next = True
+			try:
+				_position = 0
+				_uri = await self.session.resolve_youtube_track_uri(self.session.pl.current)
+				if _uri is None:
+					_uri = self.session.pl.current.uri
+				if _uri is not None and ("youtube.com" in _uri or "youtu.be" in _uri):
+					_position = await YTMostReplayedAPI.get_chorus_info(_uri)
+					logger.info("Play Position: %s", _position)
+					if _position is None:
+						_position = 0
+				logger.debug("Resuming track (Skip): %s at %s", pl_current.uri, _position)
+				await self.session.pl.play(pl_current, start=_position, volume=self.session.PL_VOLUME, paused=False)
+			except Exception:
+				logger.exception("スキップ後の楽曲再生に失敗しました")
+				self.session.NEXT.set()
 
 		# 次の問題へボタンを有効化
 		next_q_button.enable_all_items()

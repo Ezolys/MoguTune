@@ -1,18 +1,20 @@
 import asyncio
 import datetime
 import logging
+import posixpath
 import random
 import traceback
 from dataclasses import dataclass, field
 from os import getenv
 
 import discord
-import mafic
+import sonolink
 from discord.utils import MISSING
 from mogutune_core import answers, ranking, trackpool
 from mogutune_core.models import is_same_track
 from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
+from sonolink.models import Playable as SonoPlayable
 
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
@@ -20,12 +22,15 @@ from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
-from mogutune.quiz.track_adapter import TrackCollection, to_core_track, to_core_tracks, to_mafic_tracks
+from mogutune.quiz.track_adapter import TrackCollection, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
 from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+# SFX に許可する Lavalink 内ディレクトリ (local ソースで identifier 解決する)
+SFX_LOCAL_DIR = "/opt/Lavalink/sfx/"
 
 
 @dataclass
@@ -37,8 +42,8 @@ class QuizSession:
 	channel_id: int
 	"""クイズが実行されているボイスチャンネルのID"""
 
-	pl: mafic.Player
-	"""プレイヤー (Mafic)"""
+	pl: sonolink.Player
+	"""プレイヤー (SonoLink)"""
 
 	query: str
 	"""プレイリストのURL"""
@@ -73,13 +78,13 @@ class QuizSession:
 	q_wait_seconds: int = 1
 	"""問題開始待ち時間 (秒)"""
 
-	q_original_tracks: list[mafic.Track] | None = None
+	q_original_tracks: list[SonoPlayable] | None = None
 	"""問題の元のトラック一覧"""
-	q_tracks: list[mafic.Track] | None = None
+	q_tracks: list[SonoPlayable] | None = None
 	"""問題のトラック一覧"""
 	q_tracks_count: int = 0
 	"""問題のトラック数"""
-	current_q_track: mafic.Track | None = None
+	current_q_track: SonoPlayable | None = None
 	"""現在出題しようとしているトラック"""
 	is_skipping_current_q_by_exception: bool = False
 	"""現在の問題を再生例外によってスキップ中かどうか"""
@@ -100,9 +105,11 @@ class QuizSession:
 
 	is_playing_sfx: bool = False
 	"""SFXを再生しているかどうか"""
+	sfx_track_playing: SonoPlayable | None = None
+	"""現在実際に再生中の SFX トラック (resolve 中の先行占有を区別するため play() 発行時にのみ設定)"""
 	restore_track_after_sfx: bool = True
 	"""SFX再生後に元のトラックを復帰するかどうか"""
-	original_track_before_sfx: mafic.Track | None = None
+	original_track_before_sfx: SonoPlayable | None = None
 	"""SFX再生前のトラック"""
 	original_position_before_sfx: int = 0
 	"""SFX再生前の再生位置"""
@@ -116,6 +123,8 @@ class QuizSession:
 	"""巻き戻しを適用する回答開始時再生位置の下限 (ミリ秒) 未満の場合は最初から再生する"""
 	answer_pause_position: int = 0
 	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
+	expect_user_next: bool = False
+	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -170,7 +179,7 @@ class QuizSession:
 		"""プレイヤーを取得"""
 		return self.roster.get(user_id)
 
-	async def get_answer_tracks(self) -> list[mafic.Track]:
+	async def get_answer_tracks(self) -> list[SonoPlayable]:
 		"""解答候補のトラック一覧を生成"""
 		if self.q_original_tracks is None:
 			return []
@@ -183,16 +192,16 @@ class QuizSession:
 
 		# 正解の曲を除いてダミーの選択肢を4つサンプリングし、正解を足してシャッフルする
 		choices = answers.generate_choices(to_core_track(self.pl.current), to_core_tracks(self.q_original_tracks), self.rng)
-		# core.Track を URI で元の mafic.Track へ引き戻す
-		return to_mafic_tracks(choices, self.q_original_tracks)
+		# core.Track を URI で元の SonoPlayable へ引き戻す
+		return to_sono_tracks(choices, self.q_original_tracks)
 
-	def get_current_track(self) -> mafic.Track | None:
+	def get_current_track(self) -> SonoPlayable | None:
 		"""再生中の楽曲を取得する"""
 		if self.pl is None:
 			return None
 		return self.pl.current
 
-	def get_track_from_uri(self, uri: str) -> mafic.Track | None:
+	def get_track_from_uri(self, uri: str) -> SonoPlayable | None:
 		"""URIからトラックを取得する"""
 		if self.q_original_tracks is None:
 			return None
@@ -202,12 +211,12 @@ class QuizSession:
 		return None
 
 	@staticmethod
-	def format_track_title(track: mafic.Track | None, max_length: int | None = None, *, with_author: bool = False) -> str:
+	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
 		if track is None:
 			return "Unknown"
 
-		title = track.title if track.source == "youtube" else track.title
+		title = track.title if track.source_name == "youtube" else track.title
 		if with_author and track.author is not None:
 			title += f" - {track.author}"
 		if max_length is not None and len(title) > max_length:
@@ -215,20 +224,20 @@ class QuizSession:
 		return title
 
 	@staticmethod
-	def set_track_artwork(embed: discord.Embed, track: mafic.Track | None) -> discord.Embed:
+	def set_track_artwork(embed: discord.Embed, track: SonoPlayable | None) -> discord.Embed:
 		"""トラックのジャケット画像を埋め込みへ設定する"""
-		if track is not None and track.artwork_url is not None:
-			embed.set_image(url=track.artwork_url)
+		if track is not None and track.artwork is not None:
+			embed.set_image(url=track.artwork)
 		return embed
 
 	@staticmethod
-	def set_footer_track_info(embed: discord.Embed, track: mafic.Track | None) -> discord.Embed:
+	def set_footer_track_info(embed: discord.Embed, track: SonoPlayable | None) -> discord.Embed:
 		"""トラックの追加情報を埋め込みのフッターへ設定する"""
 		if track is not None:
 			text = ""
 			if track.isrc is not None:
 				text += f"ISRC: {track.isrc}\n"
-			text += f"Author: {track.author}\nSource: {track.source}"
+			text += f"Author: {track.author}\nSource: {track.source_name}"
 			embed.set_footer(text=text)
 		return embed
 
@@ -305,7 +314,7 @@ class QuizSession:
 				logger.error(traceback.format_exc())
 			return None
 
-	def is_question_track_exception_target(self, track: mafic.Track) -> bool:
+	def is_question_track_exception_target(self, track: SonoPlayable) -> bool:
 		"""現在の出題トラックに対する再生例外かどうかを返す"""
 		if not self.playing:
 			return False
@@ -324,7 +333,7 @@ class QuizSession:
 		self.current_q_track = None
 		self.is_skipping_current_q_by_exception = False
 
-	async def skip_current_q_by_track_exception(self, track: mafic.Track) -> None:
+	async def skip_current_q_by_track_exception(self, track: SonoPlayable) -> None:
 		"""出題トラックの再生例外時に現在の問題をスキップする"""
 		if self.is_skipping_current_q_by_exception:
 			return
@@ -358,7 +367,7 @@ class QuizSession:
 		finally:
 			self.NEXT.set()
 
-	async def reveal_answer_on_timeout(self, track: mafic.Track) -> None:
+	async def reveal_answer_on_timeout(self, track: SonoPlayable) -> None:
 		"""誰も正解しないまま再生が終わった際に正解情報を表示してサビから再生する (スキップと同様)"""
 		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
 
@@ -390,7 +399,7 @@ class QuizSession:
 				_position = 0
 		logger.debug(f"Resuming track (Timeout): {track.uri} at {_position}")
 		try:
-			await self.pl.play(track, start_time=_position, volume=self.PL_VOLUME)
+			await self.pl.play(track, start=_position, volume=self.PL_VOLUME, paused=False)
 		except Exception:
 			logger.error("タイムアップ後の楽曲再生に失敗しました")
 			logger.error(traceback.format_exc())
@@ -422,7 +431,9 @@ class QuizSession:
 		self.q_msg = None
 		self.owner = None
 		self.roster.owner_id = None
+		self.expect_user_next = False
 		self.restore_track_after_sfx = True
+		self.sfx_track_playing = None
 		self.answer_pause_position = 0
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
@@ -438,15 +449,23 @@ class QuizSession:
 			logger.warning(f"SFX再生中止 - SFX の URL またはファイルパスが設定されていません (SFX.{sfx_query.name})")
 			return
 
+		# 解決待ちの間も多重起動を防ぐため先に占有する (finally で解放する)
+		self.is_playing_sfx = True
+		self.SFX_FINISHED.clear()
+
 		# 解答可能かどうかを記憶
 		before_can_answered = self.can_answered
-		# 解答できない状態にする
-		self.can_answered = False
 
 		try:
-			self.is_playing_sfx = True
+			# SFXを解決する (再生不可の場合は一時停止せずに戻る。解決失敗時も finally で占有を解放する)
+			track = await self.resolve_sfx_track(sfx_query)
+			if track is None:
+				return
+
+			# 解答できない状態にする
+			self.can_answered = False
+
 			self.restore_track_after_sfx = restore
-			self.SFX_FINISHED.clear()
 
 			# 元のトラックと再生位置を保存
 			self.original_track_before_sfx = self.pl.current
@@ -461,24 +480,10 @@ class QuizSession:
 			# 再生を一時停止
 			await self.pl.pause()
 
-			# SFXを検索して再生
-			track: mafic.Track | str | None = None
-			# URL
-			if isinstance(sfx_query, str):
-				if sfx_query.startswith(("http://", "https://")):
-					sfx_tracks = await self.pl.fetch_tracks(sfx_query)
-					if not sfx_tracks or not isinstance(sfx_tracks, list):
-						raise Exception("SFX track not found or is a playlist.")
-					track = sfx_tracks[0]
-				# ローカルファイルパス
-				else:
-					track = sfx_query
-			else:
-				# 環境変数で設定された値 (SFX Enum)
-				track = str(sfx_query.value)
-
-			# SFXを再生
-			await self.pl.play(track, volume=self.PL_SFX_VOLUME)
+			# SFXを再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
+			# play() を発行した時点で sfx_track_playing を設定し、resolve 中の先行占有と区別する
+			self.sfx_track_playing = track
+			await self.pl.play(track, volume=self.PL_SFX_VOLUME, paused=False)
 
 			# SFXの再生終了を待つ
 			await self.SFX_FINISHED.wait()
@@ -491,8 +496,9 @@ class QuizSession:
 				try:
 					await self.pl.play(
 						self.original_track_before_sfx,
-						start_time=self.original_position_before_sfx,
+						start=self.original_position_before_sfx,
 						volume=self.PL_VOLUME,
+						paused=not self.was_playing_before_sfx,
 					)
 					if not self.was_playing_before_sfx:
 						await self.pl.pause()
@@ -503,39 +509,72 @@ class QuizSession:
 		finally:
 			self.is_playing_sfx = False
 			self.restore_track_after_sfx = True
+			self.sfx_track_playing = None
 			self.SFX_FINISHED.set()
 			# SFX再生前が解答できる状態だった場合は解答できる状態に戻す
 			if restore and before_can_answered:
 				self.can_answered = True
 
-	async def resolve_youtube_track_uri(self, track: mafic.Track) -> str | None:
+	async def resolve_sfx_track(self, sfx_query: str | SFX) -> SonoPlayable | None:
+		"""SFX のクエリ (URL・Lavalink内パス・SFX Enum) を解決する (再生不可の場合は None)"""
+		query: str | None = sfx_query if isinstance(sfx_query, str) else sfx_query.value
+		if query is None:
+			return None
+		# Lavalink内パスは SFX_LOCAL_DIR 配下のみ許可する (../ 排除。パスは Lavalink 側のものなので posix 固定)
+		if not query.startswith(("http://", "https://")):
+			if posixpath.normpath(query) != query or not query.startswith(SFX_LOCAL_DIR):
+				logger.warning("SFX再生中止 - 許可されていないパスです: %s", query)
+				return None
+			# ローカルファイルは Lavalink の local ソース (local: プレフィックス) で解決する
+			# (search_track のデフォルト source は ytsearch のため、パスを渡すと検索として解釈される)
+			sfx_result = unpack_search(await client.sl_client.search_track(query, source="local"))
+		else:
+			sfx_result = unpack_search(await client.sl_client.search_track(query))
+		if isinstance(sfx_result, SonoPlayable):
+			return sfx_result
+		if isinstance(sfx_result, list) and sfx_result:
+			return sfx_result[0]
+		logger.warning("SFX再生中止 - トラックを解決できませんでした: %s", query)
+		return None
+
+	async def resolve_youtube_track_uri(self, track: SonoPlayable) -> str | None:
 		"""トラックのYouTube URLを解決する"""
-		if track.source == "youtube":
+		if track.source_name == "youtube":
 			return track.uri
 
 		# ISRC を取得してみる
-		_isrc = getattr(track, "isrc", None)
+		_isrc = track.isrc
 
 		# ISRC がない場合は plugin_info から探してみる
-		if _isrc is None and hasattr(track, "plugin_info") and track.plugin_info:
-			_isrc = track.plugin_info.get("isrc")
+		if _isrc is None:
+			_plugin_info = getattr(track.data, "plugin_info", None)
+			if isinstance(_plugin_info, dict) and _plugin_info:
+				_isrc = _plugin_info.get("isrc")
+
+		async def _search_first(query: str, source: sonolink.TrackSourceType) -> SonoPlayable | None:
+			_search_result = unpack_search(await client.sl_client.search_track(query, source=source))
+			if isinstance(_search_result, SonoPlayable):
+				return _search_result
+			if isinstance(_search_result, list) and len(_search_result) > 0:
+				return _search_result[0]
+			return None
 
 		logger.info(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
 		try:
 			if _isrc:
-				_search_results = await self.pl.fetch_tracks(f'"{_isrc}"', mafic.SearchType.YOUTUBE_MUSIC)
+				_found = await _search_first(f'"{_isrc}"', sonolink.TrackSourceType.YOUTUBE_MUSIC)
 			else:
-				_search_results = await self.pl.fetch_tracks(f"{track.author} - {track.title}", mafic.SearchType.YOUTUBE)
-			if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
-				_uri = _search_results[0].uri
+				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
+			if _found is not None:
+				_uri = _found.uri
 				logger.info(f"Found YouTube track (ISRC): {_uri}")
 				return _uri
 			# ISRC で見つからなかった場合はタイトルで再検索
 			if _isrc:
 				logger.warning("YouTube track not found via ISRC. Retrying with title...")
-				_search_results = await self.pl.fetch_tracks(f"{track.author} - {track.title}", mafic.SearchType.YOUTUBE)
-				if _search_results and isinstance(_search_results, list) and len(_search_results) > 0:
-					_uri = _search_results[0].uri
+				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
+				if _found is not None:
+					_uri = _found.uri
 					logger.info(f"Found YouTube track (Title): {_uri}")
 					return _uri
 				logger.warning("YouTube track not found via title search.")
@@ -619,9 +658,9 @@ class QuizSession:
 
 			# トラック一覧
 			self.q_original_tracks = tracks.tracks
-			# 重複したトラックを除く (core で判定し、URI で mafic.Track へ引き戻す)
+			# 重複したトラックを除く (core で判定し、URI で SonoPlayable へ引き戻す)
 			unique_core_tracks = trackpool.dedupe(to_core_tracks(self.q_original_tracks))
-			self.q_original_tracks = to_mafic_tracks(unique_core_tracks, self.q_original_tracks)
+			self.q_original_tracks = to_sono_tracks(unique_core_tracks, self.q_original_tracks)
 
 			# 出題プールの検証
 			pool_error = trackpool.validate(len(self.q_original_tracks), q_count)
@@ -646,7 +685,7 @@ class QuizSession:
 
 			# トラック一覧から指定された数だけランダムに取り出す (問題の生成)
 			core_questions = trackpool.sample_questions(to_core_tracks(self.q_original_tracks), q_count, self.rng)
-			self.q_tracks = to_mafic_tracks(core_questions, self.q_original_tracks)
+			self.q_tracks = to_sono_tracks(core_questions, self.q_original_tracks)
 			self.q_tracks_count = q_count
 
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
@@ -671,7 +710,7 @@ class QuizSession:
 			artwork_url = None
 			if tracks.plugin_info is not None:
 				# Spotify
-				if tracks.tracks[0].source == "spotify":
+				if tracks.tracks[0].source_name == "spotify":
 					# アルバム
 					if tracks.plugin_info.get("type") == "album":
 						playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
@@ -742,6 +781,7 @@ class QuizSession:
 				await start_msg.edit(embed=start_msg.embeds[0])
 
 				self.NEXT.clear()
+				self.expect_user_next = False
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
@@ -758,8 +798,9 @@ class QuizSession:
 
 				logger.debug("- 再生開始")
 
-				# 再生
-				await self.pl.play(q, volume=self.PL_VOLUME)
+				# 再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
+				logger.debug("再生状態 - paused: %s, position: %s, volume: %s", self.pl.paused, self.pl.position, self.PL_VOLUME)
+				await self.pl.play(q, volume=self.PL_VOLUME, paused=False)
 				await self.NEXT.wait()  # 待機
 				if not self.is_skipping_current_q_by_exception:
 					await self.pl.pause()  # 念の為一時停止
@@ -1030,7 +1071,7 @@ class QuizSession:
 		# if interaction.view is not None:
 		# 	interaction.view.enable_all_items()
 
-	async def answer(self, user_id: int, answer: str) -> mafic.Track | None:
+	async def answer(self, user_id: int, answer: str) -> SonoPlayable | None:
 		"""解答する"""
 		logger.debug(f"解答判定: {user_id} - {answer}")
 		if self.pl is None:
