@@ -73,7 +73,7 @@ async def on_sonolink_track_exception(player: sonolink.Player, payload: TrackExc
 				await session.pl.play(
 					session.original_track_before_sfx,
 					start=session.original_position_before_sfx,
-					volume=session.PL_VOLUME,
+					volume=await session.music_volume_for(session.original_track_before_sfx),
 					paused=not session.was_playing_before_sfx,
 				)
 				if not session.was_playing_before_sfx:
@@ -128,7 +128,7 @@ async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent)
 				await session.pl.play(
 					session.original_track_before_sfx,
 					start=session.original_position_before_sfx,
-					volume=session.PL_VOLUME,
+					volume=await session.music_volume_for(session.original_track_before_sfx),
 					paused=not session.was_playing_before_sfx,
 				)
 

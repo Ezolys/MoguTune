@@ -146,6 +146,10 @@ lavalink:
       snapshot: true
       repository: "https://maven.lavalink.dev/snapshots"
 
+    # ラウドネスノーマライゼーション (ピークリミッター)
+    - dependency: "com.github.Devoxin:LavaDSPX-Plugin:0.0.5"
+      repository: "https://jitpack.io"
+
     #- dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
 #    - dependency: "com.github.example:example-plugin:1.0.0" # required, the coordinates of your plugin
 #      repository: "https://maven.example.com/releases" # optional, defaults to the Lavalink releases repository by default

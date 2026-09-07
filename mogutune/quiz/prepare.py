@@ -14,6 +14,7 @@ from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.discord_io import safe_edit, safe_send
 from mogutune.embeds import EmbedsTemplates
+from mogutune.normalizer import apply_normalization_limiter
 from mogutune.playlists import Playlist
 from mogutune.quiz.manager import quiz_session_manager
 from mogutune.quiz.permissions import check_voice_permissions
@@ -166,6 +167,9 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 			else:
 				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.cannot_connect_voice_channel")))
 			return
+
+		# ピークリミッターを適用する (失敗してもログのみでクイズは続行する)
+		await apply_normalization_limiter(player)
 
 		# 検索ソース
 		search_source = sonolink.TrackSourceType.YOUTUBE_MUSIC

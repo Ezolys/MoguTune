@@ -399,7 +399,7 @@ class QuizAnswerSelectView(discord.ui.View):
 					if _position is None:
 						_position = 0
 				logger.debug("Resuming track: %s at %s", _track.uri, _position)
-				await self.session.pl.play(_track, start=_position, volume=self.session.PL_VOLUME, paused=False)
+				await self.session.pl.play(_track, start=_position, volume=await self.session.music_volume_for(_track), paused=False)
 			except Exception:
 				logger.exception("正解後の楽曲再生に失敗しました")
 				self.session.NEXT.set()
@@ -609,7 +609,9 @@ class QuizAnswerButtonView(discord.ui.View):
 					if _position is None:
 						_position = 0
 				logger.debug("Resuming track (Skip): %s at %s", pl_current.uri, _position)
-				await self.session.pl.play(pl_current, start=_position, volume=self.session.PL_VOLUME, paused=False)
+				await self.session.pl.play(
+					pl_current, start=_position, volume=await self.session.music_volume_for(pl_current), paused=False
+				)
 			except Exception:
 				logger.exception("スキップ後の楽曲再生に失敗しました")
 				self.session.NEXT.set()

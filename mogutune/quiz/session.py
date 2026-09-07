@@ -17,6 +17,7 @@ from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
+from mogutune import normalizer
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
@@ -233,6 +234,10 @@ class QuizSession:
 				return track
 		return None
 
+	async def music_volume_for(self, track: SonoPlayable) -> int:
+		"""トラックのラウドネス補正後の再生音量を返す (補正できない場合は元の音量)"""
+		return await normalizer.resolve_volume(track, self.PL_VOLUME)
+
 	@staticmethod
 	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
@@ -422,7 +427,7 @@ class QuizSession:
 				_position = 0
 		logger.debug(f"Resuming track (Timeout): {track.uri} at {_position}")
 		try:
-			await self.pl.play(track, start=_position, volume=self.PL_VOLUME, paused=False)
+			await self.pl.play(track, start=_position, volume=await self.music_volume_for(track), paused=False)
 		except Exception:
 			logger.error("タイムアップ後の楽曲再生に失敗しました")
 			logger.error(traceback.format_exc())
@@ -522,7 +527,7 @@ class QuizSession:
 					await self.pl.play(
 						self.original_track_before_sfx,
 						start=self.original_position_before_sfx,
-						volume=self.PL_VOLUME,
+						volume=await self.music_volume_for(self.original_track_before_sfx),
 						paused=not self.was_playing_before_sfx,
 					)
 					if not self.was_playing_before_sfx:
@@ -725,6 +730,9 @@ class QuizSession:
 			self.q_tracks = to_sono_tracks(core_questions, self.q_original_tracks)
 			self.q_tracks_count = q_count
 
+			# ラウドネス解析の非同期先読み (問題1再生中に 2 問目以降の解析を完了させる)
+			normalizer.start_prefetch(self.q_tracks)
+
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
 			logger.debug("- プレイヤー一覧生成")
@@ -871,7 +879,7 @@ class QuizSession:
 
 				# 再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
 				logger.debug("再生状態 - paused: %s, position: %s, volume: %s", self.pl.paused, self.pl.position, self.PL_VOLUME)
-				await self.pl.play(q, volume=self.PL_VOLUME, paused=False)
+				await self.pl.play(q, volume=await self.music_volume_for(q), paused=False)
 				await self.NEXT.wait()  # 待機
 				if not self.is_skipping_current_q_by_exception:
 					await self.pl.pause()  # 念の為一時停止
