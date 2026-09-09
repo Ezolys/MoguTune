@@ -238,6 +238,32 @@ class QuizSession:
 		"""トラックのラウドネス補正後の再生音量を返す (補正できない場合は元の音量)"""
 		return await normalizer.resolve_volume(track, self.PL_VOLUME)
 
+	async def _wait_lufs_analysis(self, start_msg: discord.Message) -> None:
+		"""全曲のラウドネス解析完了を待つ (進捗を準備完了メッセージの埋め込みに表示する)"""
+		if not (normalizer.ENABLED and normalizer.API_URL) or not self.q_tracks:
+			return
+		base_desc = start_msg.embeds[0].description
+
+		async def _progress(done: int, total: int) -> None:
+			try:
+				embed = start_msg.embeds[0]
+				embed.description = f"{base_desc}\n\n⏳ {t('msg.q.init.lufs_progress', done, total)}"
+				await start_msg.edit(embed=embed)
+			except discord.errors.NotFound:
+				pass
+			except Exception:
+				logger.debug("ラウドネス解析の進捗表示更新に失敗しました", exc_info=True)
+
+		try:
+			await normalizer.prefetch(self.q_tracks, progress=_progress if normalizer.PROGRESS else None)
+		finally:
+			try:
+				embed = start_msg.embeds[0]
+				embed.description = base_desc
+				await start_msg.edit(embed=embed)
+			except Exception:
+				logger.debug("ラウドネス解析の進捗表示の復元に失敗しました", exc_info=True)
+
 	@staticmethod
 	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
@@ -777,6 +803,9 @@ class QuizSession:
 				await start_msg.edit(view=None)
 			except discord.errors.NotFound:
 				pass
+
+			# 全曲のラウドネス解析完了を待つ (間に合わなかった曲は原音で再生され、後からバックグラウンドで補正される)
+			await self._wait_lufs_analysis(start_msg)
 
 			# 問題開始メッセージを送信
 			q_msg = await self._send_to_vc(

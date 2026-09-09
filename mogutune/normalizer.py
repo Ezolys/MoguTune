@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from os import getenv
 
 import httpx
@@ -30,6 +31,9 @@ MAX_BOOST_DB = _fenv("NORMALIZE_MAX_BOOST_DB", 8)
 MAX_CUT_DB = _fenv("NORMALIZE_MAX_CUT_DB", 10)
 LIMITER_MAX_AMPLITUDE = _fenv("NORMALIZE_LIMITER_MAX_AMPLITUDE", 0.95)
 TIMEOUT_S = _fenv("NORMALIZE_TIMEOUT_S", 2.0)
+PREFETCH_TIMEOUT_S = _fenv("NORMALIZE_PREFETCH_TIMEOUT_S", 60.0)
+# クイズ開始前の解析進捗表示 (無効化する場合はコード内で False に変更する)
+PROGRESS = True
 API_URL = getenv("NORMALIZE_API_URL", "").rstrip("/")
 API_SECRET = getenv("NORMALIZE_API_SECRET", "")
 
@@ -102,8 +106,35 @@ async def _api_lufs(uri: str) -> float | None:
 	return None
 
 
+async def _resolve_lufs(uri: str) -> float | None:
+	"""LUFS を解析してキャッシュに保存する (バックグラウンド解析タスク本体。解析完了で値不明ならネガティブキャッシュ)"""
+	lufs = await _mongo_lufs(uri)
+	if lufs is None and API_URL:
+		lufs = await _api_lufs(uri)
+		if lufs is not None:
+			await _mongo_save(uri, lufs)
+	if lufs is not None:
+		_cache_lru(uri, lufs)
+	else:
+		_cache_negative(uri)
+	return lufs
+
+
+_inflight: dict[str, asyncio.Task[float | None]] = {}
+
+
+def _get_or_start_task(uri: str) -> asyncio.Task[float | None]:
+	"""URL の解析タスクを取得する (進行中のものがなければ起動する)"""
+	task = _inflight.get(uri)
+	if task is None:
+		task = asyncio.create_task(_resolve_lufs(uri))
+		_inflight[uri] = task
+		task.add_done_callback(lambda _t, _uri=uri: _inflight.pop(_uri, None))
+	return task
+
+
 async def _lufs_for(uri: str) -> float | None:
-	"""LUFS を ①LRU → ②Mongo loudness_cache → ③外部解析 API の順で取得する (失敗は一時的にネガティブキャッシュ)"""
+	"""LUFS を取得する (LRU → ネガ → 進行中/新規解析タスク。タイムアウトしても解析はバックグラウンドで継続する)"""
 	if uri in _lru:
 		return _lru[uri]
 	expiry = _neg_lru.get(uri)
@@ -111,18 +142,10 @@ async def _lufs_for(uri: str) -> float | None:
 		if time.monotonic() < expiry:
 			return None
 		del _neg_lru[uri]
-	lufs = await _mongo_lufs(uri)
-	if lufs is not None:
-		_cache_lru(uri, lufs)
-		return lufs
-	if API_URL:
-		lufs = await _api_lufs(uri)
-		if lufs is not None:
-			_cache_lru(uri, lufs)
-			await _mongo_save(uri, lufs)
-		else:
-			_cache_negative(uri)
-	return lufs
+	try:
+		return await asyncio.wait_for(asyncio.shield(_get_or_start_task(uri)), TIMEOUT_S)
+	except TimeoutError:
+		return None
 
 
 async def _analysis_url(track: SonoPlayable) -> str | None:
@@ -149,19 +172,36 @@ async def resolve_volume(track: SonoPlayable, base: int) -> int:
 	return volume
 
 
-async def prefetch(tracks: list[SonoPlayable]) -> None:
-	"""全トラックの LUFS を並列先読みしてキャッシュを温める (解析中は待たない・失敗は無視)"""
+async def prefetch(
+	tracks: list[SonoPlayable],
+	progress: Callable[[int, int], Awaitable[None]] | None = None,
+) -> None:
+	"""全トラックの解析 URL を解決し、LUFS 解析が完了するまで待つ (タイムアウト分はバックグラウンドで継続・失敗は無視)
+
+	progress は解析完了ごとに (完了数, 総数) を受け取る。
+	"""
 	if not ENABLED or not API_URL:
 		return
-	semaphore = asyncio.Semaphore(10)
-
-	async def _prefetch(track: SonoPlayable) -> None:
-		async with semaphore:
-			url = await _analysis_url(track)
-			if url is not None:
-				await _lufs_for(url)
-
-	await asyncio.gather(*(_prefetch(track) for track in tracks))
+	# 解析 URL を並列解決 (Spotify 起源は Lavalink 検索。再解決は node キャッシュで高速)
+	urls = [url for url in await asyncio.gather(*(_analysis_url(track) for track in tracks)) if url is not None]
+	# 解析タスクを起動 (進行中のものは共有。キャッシュ済みは対象外)
+	tasks = [_get_or_start_task(url) for url in dict.fromkeys(urls) if url not in _lru]
+	total = len(tasks)
+	if total == 0:
+		return
+	deadline = time.monotonic() + PREFETCH_TIMEOUT_S
+	for done, task in enumerate(tasks, 1):
+		remaining = deadline - time.monotonic()
+		if remaining <= 0:
+			break
+		try:
+			await asyncio.wait_for(asyncio.shield(task), remaining)
+		except TimeoutError:
+			break  # 残りはバックグラウンドで継続する
+		except Exception:
+			logger.debug("LUFS 解析タスクが失敗しました (進捗には数えます): %s", getattr(task, "get_name", lambda: "")())
+		if progress is not None:
+			await progress(done, total)
 
 
 _prefetch_tasks: set[asyncio.Task[None]] = set()
@@ -186,7 +226,7 @@ async def apply_normalization_limiter(player: sonolink.Player) -> None:
 	if not ENABLED:
 		return
 	try:
-		await player.set_filters(Filters(plugin_filters={"normalization": {"maxAmplitude": LIMITER_MAX_AMPLITUDE, "adaptive": True}}))
+		await player.set_filters(Filters(plugin_filters={"normalization": {"maxAmplitude": LIMITER_MAX_AMPLITUDE}}))
 		logger.debug("LavaDSPX normalization リミッターを適用しました (maxAmplitude=%s)", LIMITER_MAX_AMPLITUDE)
 	except Exception:
 		logger.exception("LavaDSPX normalization リミッターの適用に失敗しました (補正なしで続行)")
