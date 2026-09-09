@@ -792,6 +792,12 @@ class QuizSession:
 			try:
 				await asyncio.wait_for(self.READY.wait(), timeout=self.READY_TIMEOUT_SECONDS)
 			except TimeoutError:
+				try:
+					await start_msg.delete()
+				except discord.errors.NotFound:
+					pass
+				except discord.errors.HTTPException:
+					logger.exception("準備完了メッセージの削除に失敗しました")
 				await self._send_to_vc(
 					embed=EmbedsTemplates.warning(
 						title=t("msg.q.ready_timeout.title"),
@@ -803,6 +809,12 @@ class QuizSession:
 				self.reset()
 				return False
 			if not self.playing:
+				try:
+					await start_msg.delete()
+				except discord.errors.NotFound:
+					pass
+				except discord.errors.HTTPException:
+					logger.exception("準備完了メッセージの削除に失敗しました")
 				return False  # 待機中に end() された場合 (全員退出など)
 
 			# 準備完了成立後は start_msg から準備完了ボタンを外す
