@@ -9,6 +9,8 @@ from mogutune_core.db import DBManager
 from sonolink.models import Filters
 from sonolink.models import Playable as SonoPlayable
 
+from mogutune.track_adapter import resolve_youtube_url
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -30,6 +32,9 @@ LIMITER_MAX_AMPLITUDE = _fenv("NORMALIZE_LIMITER_MAX_AMPLITUDE", 0.95)
 TIMEOUT_S = _fenv("NORMALIZE_TIMEOUT_S", 2.0)
 API_URL = getenv("NORMALIZE_API_URL", "").rstrip("/")
 API_SECRET = getenv("NORMALIZE_API_SECRET", "")
+
+if ENABLED and not API_URL:
+	logger.warning("NORMALIZE_API_URL が未設定のため LUFS 解析 API を呼び出しません (音量補正なしで動作します)")
 
 _lru: dict[str, float] = {}
 # ponytail: FIFO eviction (上限 512)、ヒット率が問題になったら OrderedDict ベースの真の LRU へ移行する
@@ -120,15 +125,27 @@ async def _lufs_for(uri: str) -> float | None:
 	return lufs
 
 
+async def _analysis_url(track: SonoPlayable) -> str | None:
+	"""解析 API に渡す URL を返す (Spotify 起源トラックは YouTube URL に解決、失敗は None)"""
+	if track.uri is None:
+		return None
+	if track.source_name == "spotify":
+		return await resolve_youtube_url(track)
+	return track.uri
+
+
 async def resolve_volume(track: SonoPlayable, base: int) -> int:
 	"""トラックのラウドネス補正後の音量を返す (補正できない場合は base)"""
 	if not ENABLED or track.uri is None:
 		return base
-	lufs = await _lufs_for(track.uri)
+	url = await _analysis_url(track)
+	if url is None:
+		return base
+	lufs = await _lufs_for(url)
 	if lufs is None:
 		return base
 	volume = gain_to_volume(base, lufs)
-	logger.debug("LUFS 補正: %s lufs=%.1f volume=%s (base=%s)", track.uri, lufs, volume, base)
+	logger.debug("LUFS 補正: %s lufs=%.1f volume=%s (base=%s)", url, lufs, volume, base)
 	return volume
 
 
@@ -139,10 +156,10 @@ async def prefetch(tracks: list[SonoPlayable]) -> None:
 	semaphore = asyncio.Semaphore(10)
 
 	async def _prefetch(track: SonoPlayable) -> None:
-		if track.uri is None:
-			return
 		async with semaphore:
-			await _lufs_for(track.uri)
+			url = await _analysis_url(track)
+			if url is not None:
+				await _lufs_for(url)
 
 	await asyncio.gather(*(_prefetch(track) for track in tracks))
 

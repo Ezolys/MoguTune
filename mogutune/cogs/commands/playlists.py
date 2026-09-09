@@ -23,7 +23,7 @@ from mogutune.playlists import (
 	Playlist,
 	dedupe_track_docs,
 )
-from mogutune.quiz.track_adapter import to_core_tracks, to_sono_tracks, to_stored_track_dict, unpack_search
+from mogutune.track_adapter import to_core_tracks, to_sono_tracks, to_stored_track_dict, unpack_search
 from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)

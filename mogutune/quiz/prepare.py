@@ -18,7 +18,7 @@ from mogutune.normalizer import apply_normalization_limiter
 from mogutune.playlists import Playlist
 from mogutune.quiz.manager import quiz_session_manager
 from mogutune.quiz.permissions import check_voice_permissions
-from mogutune.quiz.track_adapter import TrackCollection, unpack_search
+from mogutune.track_adapter import TrackCollection, unpack_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

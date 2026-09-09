@@ -24,9 +24,9 @@ from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
-from mogutune.quiz.track_adapter import TrackCollection, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
 from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
+from mogutune.track_adapter import TrackCollection, resolve_youtube_url, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -570,53 +570,8 @@ class QuizSession:
 		return None
 
 	async def resolve_youtube_track_uri(self, track: SonoPlayable) -> str | None:
-		"""トラックのYouTube URLを解決する"""
-		if track.source_name == "youtube":
-			return track.uri
-
-		# ISRC を取得してみる
-		_isrc = track.isrc
-
-		# ISRC がない場合は plugin_info から探してみる
-		if _isrc is None:
-			_plugin_info = getattr(track.data, "plugin_info", None)
-			if isinstance(_plugin_info, dict) and _plugin_info:
-				_isrc = _plugin_info.get("isrc")
-
-		async def _search_first(query: str, source: sonolink.TrackSourceType) -> SonoPlayable | None:
-			_search_result = unpack_search(await client.sl_client.search_track(query, source=source))
-			if isinstance(_search_result, SonoPlayable):
-				return _search_result
-			if isinstance(_search_result, list) and len(_search_result) > 0:
-				return _search_result[0]
-			return None
-
-		logger.info(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
-		try:
-			if _isrc:
-				_found = await _search_first(f'"{_isrc}"', sonolink.TrackSourceType.YOUTUBE_MUSIC)
-			else:
-				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
-			if _found is not None:
-				_uri = _found.uri
-				logger.info(f"Found YouTube track (ISRC): {_uri}")
-				return _uri
-			# ISRC で見つからなかった場合はタイトルで再検索
-			if _isrc:
-				logger.warning("YouTube track not found via ISRC. Retrying with title...")
-				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
-				if _found is not None:
-					_uri = _found.uri
-					logger.info(f"Found YouTube track (Title): {_uri}")
-					return _uri
-				logger.warning("YouTube track not found via title search.")
-			else:
-				logger.warning("YouTube track not found via search.")
-		except Exception:
-			logger.error("Failed to search YouTube track.")
-			logger.error(traceback.format_exc())
-
-		return None
+		"""トラックのYouTube URLを解決する (本体は track_adapter.resolve_youtube_url に移動)"""
+		return await resolve_youtube_url(track)
 
 	async def end(self) -> None:
 		"""クイズを終了する"""

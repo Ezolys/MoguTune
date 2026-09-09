@@ -1,11 +1,18 @@
 # Copyright (c) 2026 Milkeyyy
 
+import logging
+import traceback
 from dataclasses import dataclass
 
+import sonolink
 from mogutune_core.models import Track as CoreTrack
 from sonolink.models import Playable as SonoPlayable
 from sonolink.models import Playlist as SonoPlaylist
 from sonolink.models import SearchResult
+
+from mogutune.client import client
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -72,3 +79,46 @@ def unpack_search(result: SearchResult) -> SonoPlayable | list[SonoPlayable] | S
 	if result.is_error() or result.is_empty() or result.result is None:
 		return None
 	return result.result
+
+
+async def resolve_youtube_url(track: SonoPlayable) -> str | None:
+	"""トラックを YouTube URL に解決する (youtube ソースは uri をそのまま返す。ISRC → ytmsearch → タイトル検索の順)
+
+	サビ検出 (QuizSession.resolve_youtube_track_uri) と LUFS 解析の対象 URL 解決で共用する。
+	"""
+	if track.source_name == "youtube":
+		return track.uri
+
+	# ISRC を取得してみる (ない場合は plugin_info から探す)
+	_isrc = track.isrc
+	if _isrc is None:
+		_plugin_info = getattr(track.data, "plugin_info", None)
+		if isinstance(_plugin_info, dict) and _plugin_info:
+			_isrc = _plugin_info.get("isrc")
+
+	async def _search_first(query: str, source: sonolink.TrackSourceType) -> SonoPlayable | None:
+		_search_result = unpack_search(await client.sl_client.search_track(query, source=source))
+		if isinstance(_search_result, SonoPlayable):
+			return _search_result
+		if isinstance(_search_result, list) and _search_result:
+			return _search_result[0]
+		return None
+
+	logger.info("Searching YouTube for: %s - %s (ISRC: %s)", track.author, track.title, _isrc)
+	try:
+		if _isrc:
+			_found = await _search_first(f'"{_isrc}"', sonolink.TrackSourceType.YOUTUBE_MUSIC)
+		else:
+			_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
+		if _found is not None:
+			logger.info("Found YouTube track: %s", _found.uri)
+			return _found.uri
+		if _isrc:  # ISRC で見つからなかった場合はタイトルで再検索
+			_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
+			if _found is not None:
+				logger.info("Found YouTube track (Title): %s", _found.uri)
+				return _found.uri
+	except Exception:
+		logger.error("Failed to search YouTube track.")
+		logger.error(traceback.format_exc())
+	return None
