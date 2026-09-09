@@ -32,9 +32,9 @@ services:
       SFX_QUIZ_Q: ${SFX_QUIZ_Q}
       SFX_QUIZ_A: ${SFX_QUIZ_A}
 
-      # YTMostReplayedAPI URL and Secret [Option]
-      YTMRAPI_URL: ${YTMRAPI_URL}
-      YTMRAPI_SECRET: ${YTMRAPI_SECRET}
+      # Backend API (YTMostReplayedAPI) URL and Secret [Option]
+      BACKEND_API_URL: ${BACKEND_API_URL}
+      BACKEND_API_SECRET: ${BACKEND_API_SECRET}
 
       # Loudness Normalization [Option]
       NORMALIZE_ENABLED: ${NORMALIZE_ENABLED:-true}
@@ -43,8 +43,6 @@ services:
       NORMALIZE_MAX_CUT_DB: ${NORMALIZE_MAX_CUT_DB:-10}
       NORMALIZE_LIMITER_MAX_AMPLITUDE: ${NORMALIZE_LIMITER_MAX_AMPLITUDE:-0.95}
       NORMALIZE_TIMEOUT_S: ${NORMALIZE_TIMEOUT_S:-2.0}
-      NORMALIZE_API_URL: ${NORMALIZE_API_URL}
-      NORMALIZE_API_SECRET: ${NORMALIZE_API_SECRET}
 
       # Discord Server ID and Text Channel ID for debugging [Option]
       DEBUG_LOG_GUILD_ID: ${DEBUG_LOG_GUILD_ID}

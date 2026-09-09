@@ -34,11 +34,11 @@ TIMEOUT_S = _fenv("NORMALIZE_TIMEOUT_S", 2.0)
 PREFETCH_TIMEOUT_S = _fenv("NORMALIZE_PREFETCH_TIMEOUT_S", 60.0)
 # クイズ開始前の解析進捗表示 (無効化する場合はコード内で False に変更する)
 PROGRESS = True
-API_URL = getenv("NORMALIZE_API_URL", "").rstrip("/")
-API_SECRET = getenv("NORMALIZE_API_SECRET", "")
+API_URL = getenv("BACKEND_API_URL", "").rstrip("/")
+API_SECRET = getenv("BACKEND_API_SECRET", "")
 
 if ENABLED and not API_URL:
-	logger.warning("NORMALIZE_API_URL が未設定のため LUFS 解析 API を呼び出しません (音量補正なしで動作します)")
+	logger.warning("BACKEND_API_URL が未設定のため LUFS 解析 API を呼び出しません (音量補正なしで動作します)")
 
 _lru: dict[str, float] = {}
 # ponytail: FIFO eviction (上限 512)、ヒット率が問題になったら OrderedDict ベースの真の LRU へ移行する

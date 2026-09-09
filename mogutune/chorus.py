@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class YTMostReplayedAPI:
-	_API_URL: ClassVar[str] = getenv("YTMRAPI_URL", "http://localhost") + "/"
+	_API_URL: ClassVar[str] = getenv("BACKEND_API_URL", "http://localhost") + "/"
 	cl = AsyncClient()
 
 	@classmethod
@@ -20,7 +20,7 @@ class YTMostReplayedAPI:
 			res = await cls.cl.get(
 				cls._API_URL + "chorus",
 				params={"url": youtube_url},
-				headers={"Secret": getenv("YTMRAPI_SECRET", "")},
+				headers={"Secret": getenv("BACKEND_API_SECRET", "")},
 				timeout=30,
 			)
 			if res.status_code == 200:
