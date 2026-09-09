@@ -27,7 +27,7 @@ def _fenv(name: str, default: float) -> float:
 # ラウドネスノーマライゼーション設定 (無効化で即時ロールバック可能)
 ENABLED = getenv("NORMALIZE_ENABLED", "true").lower() == "true"
 TARGET_LUFS = _fenv("NORMALIZE_TARGET_LUFS", -14)
-MAX_BOOST_DB = _fenv("NORMALIZE_MAX_BOOST_DB", 8)
+MAX_BOOST_DB = _fenv("NORMALIZE_MAX_BOOST_DB", 14)
 MAX_CUT_DB = _fenv("NORMALIZE_MAX_CUT_DB", 10)
 LIMITER_MAX_AMPLITUDE = _fenv("NORMALIZE_LIMITER_MAX_AMPLITUDE", 0.95)
 TIMEOUT_S = _fenv("NORMALIZE_TIMEOUT_S", 2.0)
