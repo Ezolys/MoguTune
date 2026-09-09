@@ -291,7 +291,7 @@ class QuizSession:
 			text = ""
 			if track.isrc is not None:
 				text += f"ISRC: {track.isrc}\n"
-			text += f"Author: {track.author}\nSource: {track.source_name}"
+			text += f"Source: {track.author} via {track.source_name}"
 			embed.set_footer(text=text)
 		return embed
 
