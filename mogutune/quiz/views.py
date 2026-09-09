@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import discord
+from mogutune_core import Action, Mode
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
@@ -9,6 +10,7 @@ from mogutune.chorus import YTMostReplayedAPI
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.manager import quiz_session_manager
+from mogutune.quiz.session import ready_threshold_met
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,93 @@ class QuizReplayButtonView(discord.ui.View):
 		await prepare_play(interaction, interaction.user, interaction.guild, self.query, q_count=self.q_count)
 
 
+class QuizReadyButtonView(discord.ui.View):
+	"""準備完了ボタン (クイズ開始条件の投票)"""
+
+	def __init__(self, session_id: int, *args: object, **kwargs: object) -> None:
+		super().__init__(*args, timeout=None, **kwargs)
+		self.session_id = session_id
+		self.session = quiz_session_manager.get_session(session_id)
+
+		# セッションが存在するかチェック
+		if self.session is None:
+			logger.error("%s.session is None", self.__class__.__name__)
+			return
+
+		# 準備完了ボタン (ラベルに準備完了人数を表示)
+		self.ready_button = discord.ui.Button(
+			style=discord.ButtonStyle.green,
+			label=self._label(0, len(self.session.roster.players)),
+			emoji="✋",
+		)
+		self.ready_button.callback = self.ready_button_callback
+		self.add_item(self.ready_button)
+
+	def _label(self, votes: int, players: int) -> str:
+		"""準備完了ボタンのラベルを生成する"""
+		return t("view.q.ready_button.label") + f" ({votes}/{players})"
+
+	# 準備完了ボタン
+	async def ready_button_callback(self, interaction: discord.Interaction) -> None:
+		logger.debug("準備完了ボタンクリック: %s", self.session_id)
+
+		# 二重押し対策 (edit 反映前に再入した場合は無視する)
+		if self.ready_button.disabled:
+			return
+
+		if interaction.user is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=(await DebugLogger.report_internal_error(f"{self.__class__.__name__}.interaction.user is None"))
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# セッションを取得し直す
+		self.session = quiz_session_manager.get_session(self.session_id)
+
+		# セッションが存在するかチェック
+		if self.session is None:
+			await interaction.response.send_message(
+				embed=EmbedsTemplates.error(description=t("view.q.ready_button.session_not_found")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
+		if not self.session.roster.is_joined(interaction.user.id):
+			await interaction.response.send_message(
+				embed=EmbedsTemplates.error(description=t("view.q.ready_button.not_joined")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return
+
+		# 準備完了を宣言 (set なので重複は無視される)
+		self.session.ready_votes.add(interaction.user.id)
+		players = len(self.session.roster.players)
+		votes = len(self.session.ready_votes)
+		self.ready_button.label = self._label(votes, players)
+
+		# 準備完了条件を満たした場合は開始する
+		if ready_threshold_met(votes, players, self.session.ready_threshold):
+			self.disable_all_items()
+			try:
+				await interaction.response.edit_message(view=self)
+			except discord.errors.NotFound:
+				pass
+			self.session.READY.set()
+			return
+
+		try:
+			await interaction.response.edit_message(view=self)
+		except discord.errors.NotFound:
+			pass
+
+
 class QuizNextQButtonView(discord.ui.View):
 	def __init__(self, session_id: int, disabled: bool = False, *args, **kwargs) -> None:
 		super().__init__(timeout=None, *args, **kwargs)
@@ -69,19 +158,23 @@ class QuizNextQButtonView(discord.ui.View):
 			logger.error("%s.session is None", self.__class__.__name__)
 			return
 
+		# 結果画面へ移行するため進行投票をリセットする (スキップ票が次の問題への投票を妨げないように)
+		if self.session.vote_progression is not None:
+			self.session.vote_progression.reset()
+
 		# 次の問題があるかどうかに応じてラベルと絵文字を設定
-		label, emoji = (
-			(t("view.q.next_q_button.label.next"), "⏭️")
-			if not self.session.current_q_number >= self.session.q_tracks_count
-			else (t("view.q.next_q_button.label.end"), "🏁")
-		)
+		self._is_end = self.session.current_q_number >= self.session.q_tracks_count
+		label, emoji = (t("view.q.next_q_button.label.next"), "⏭️") if not self._is_end else (t("view.q.next_q_button.label.end"), "🏁")
+		# 投票モードでは初期から票数を表示する
+		if self.session.progression_mode is Mode.VOTE:
+			label += f" (0/{len(self.session.roster.players)})"
 
 		self.next_q_button = discord.ui.Button(style=discord.ButtonStyle.primary, label=label, emoji=emoji, disabled=disabled)
 		self.next_q_button.callback = self.next_q_button_callback
 		self.add_item(self.next_q_button)
 
 	# 次の問題ボタン
-	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:
+	async def next_q_button_callback(self, interaction: discord.Interaction) -> None:  # noqa: PLR0911
 		logger.debug(f"次の問題ボタンクリック: {self.session_id}")
 
 		# 二重押し対策 (edit 反映前に再入した場合は無視する)
@@ -120,8 +213,39 @@ class QuizNextQButtonView(discord.ui.View):
 			)
 			return
 
-		# クイズのオーナーだけがこのボタンを押せるようにする
-		if self.session.owner is not None and self.session.owner.id != interaction.user.id:
+		# 投票モード: 参加者全員が投票できる (過半数で可決)
+		if self.session.progression_mode is Mode.VOTE:
+			if not self.session.roster.is_joined(interaction.user.id):
+				await interaction.response.send_message(
+					embed=EmbedsTemplates.error(description=t("view.q.next_q_button.not_joined")),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
+			vote_progression = self.session.vote_progression
+			if vote_progression is None:
+				await interaction.response.send_message(
+					embed=EmbedsTemplates.internal_error(
+						error_code=await DebugLogger.report_internal_error("next_q_button: vote_progression is None")
+					),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
+			vote_progression.vote(Action.NEXT, interaction.user.id)
+			players = len(self.session.roster.players)
+			votes = vote_progression.votes(Action.NEXT)
+			self.next_q_button.label = (
+				t("view.q.next_q_button.label.end") if self._is_end else t("view.q.next_q_button.label.next")
+			) + f" ({votes}/{players})"
+			if not vote_progression.should_advance(Action.NEXT, players):
+				try:
+					await interaction.response.edit_message(view=self)
+				except discord.errors.NotFound:
+					pass
+				return
+		# 主催者モード: クイズのオーナーだけがこのボタンを押せるようにする
+		elif self.session.owner is not None and self.session.owner.id != interaction.user.id:
 			await interaction.response.send_message(
 				embed=EmbedsTemplates.error(
 					description=t("view.q.next_q_button.do_not_have_permission"),
@@ -139,7 +263,10 @@ class QuizNextQButtonView(discord.ui.View):
 			pass
 		# 再生停止 (=次の問題へ)
 		self.session.expect_user_next = False
-		await self.session.pl.stop()
+		try:
+			await self.session.pl.stop()
+		except Exception:
+			logger.exception("- 再生停止エラー")
 		self.session.NEXT.set()
 
 
@@ -272,7 +399,7 @@ class QuizAnswerSelectView(discord.ui.View):
 					if _position is None:
 						_position = 0
 				logger.debug("Resuming track: %s at %s", _track.uri, _position)
-				await self.session.pl.play(_track, start=_position, volume=self.session.PL_VOLUME, paused=False)
+				await self.session.pl.play(_track, start=_position, volume=await self.session.music_volume_for(_track), paused=False)
 			except Exception:
 				logger.exception("正解後の楽曲再生に失敗しました")
 				self.session.NEXT.set()
@@ -300,6 +427,9 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 問題スキップボタン
 		self.skip_button = discord.ui.Button(style=discord.ButtonStyle.gray, label=t("view.q.skip_button.label"), emoji="⏭️")
+		# 投票モードでは初期から票数を表示する
+		if self.session.progression_mode is Mode.VOTE:
+			self.skip_button.label += f" (0/{len(self.session.roster.players)})"
 		self.skip_button.callback = self.skip_button_callback
 		self.add_item(self.skip_button)
 
@@ -336,7 +466,7 @@ class QuizAnswerButtonView(discord.ui.View):
 		await self.session.raise_hand(interaction, interaction.user.id)
 
 	# スキップボタン
-	async def skip_button_callback(self, interaction: discord.Interaction) -> None:
+	async def skip_button_callback(self, interaction: discord.Interaction) -> None:  # noqa: PLR0911, PLR0915
 		logger.debug(f"スキップボタンクリック: {self.session_id}")
 
 		if interaction.user is None:
@@ -362,18 +492,7 @@ class QuizAnswerButtonView(discord.ui.View):
 			)
 			return
 
-		# クイズのオーナーだけがこのボタンを押せるようにする
-		if self.session.owner is not None and self.session.owner.id != interaction.user.id:
-			await interaction.respond(
-				embed=EmbedsTemplates.error(
-					description=t("view.q.skip_button.do_not_have_permission"),
-				),
-				ephemeral=True,
-				delete_after=3,
-			)
-			return
-
-		# 楽曲を再生していない場合はエラーメッセージを返す
+		# 楽曲を再生していない場合はエラーメッセージを返す (モード共通)
 		if self.session.pl.current is None:
 			await interaction.respond(
 				embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_playing")),
@@ -382,7 +501,7 @@ class QuizAnswerButtonView(discord.ui.View):
 			)
 			return
 
-		# 解答ができない状態の場合はエラーメッセージを送信する
+		# 解答ができない状態の場合はエラーメッセージを送信する (モード共通)
 		if not self.session.can_answered or self.session.answering_player is not None:
 			await interaction.respond(
 				embed=EmbedsTemplates.warning(
@@ -393,17 +512,58 @@ class QuizAnswerButtonView(discord.ui.View):
 			)
 			return
 
-		# クリックしたプレイヤーを取得
-		pl = await self.session.get_player(interaction.user.id)
+		# 投票モード: 参加者全員が投票できる (過半数で可決)
+		if self.session.progression_mode is Mode.VOTE:
+			if not self.session.roster.is_joined(interaction.user.id):
+				await interaction.response.send_message(
+					embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_joined")),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
+			vote_progression = self.session.vote_progression
+			if vote_progression is None:
+				await interaction.response.send_message(
+					embed=EmbedsTemplates.internal_error(
+						error_code=await DebugLogger.report_internal_error("skip_button: vote_progression is None")
+					),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
+			vote_progression.vote(Action.SKIP, interaction.user.id)
+			players = len(self.session.roster.players)
+			votes = vote_progression.votes(Action.SKIP)
+			self.skip_button.label = t("view.q.skip_button.label") + f" ({votes}/{players})"
+			if not vote_progression.should_advance(Action.SKIP, players):
+				try:
+					await interaction.response.edit_message(view=self)
+				except discord.errors.NotFound:
+					pass
+				return
+		# 主催者モード: クイズのオーナーだけがこのボタンを押せるようにする
+		else:
+			if self.session.owner is not None and self.session.owner.id != interaction.user.id:
+				await interaction.respond(
+					embed=EmbedsTemplates.error(
+						description=t("view.q.skip_button.do_not_have_permission"),
+					),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
 
-		# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
-		if pl is None:
-			await interaction.followup.send(
-				embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_joined")),
-				ephemeral=True,
-				delete_after=3,
-			)
-			return
+			# クリックしたプレイヤーを取得
+			pl = await self.session.get_player(interaction.user.id)
+
+			# クイズに参加していないユーザーがクリックした場合はエラーメッセージを返す
+			if pl is None:
+				await interaction.followup.send(
+					embed=EmbedsTemplates.error(description=t("view.q.skip_button.not_joined")),
+					ephemeral=True,
+					delete_after=3,
+				)
+				return
 
 		# 解答ができない状態にする
 		self.session.can_answered = False
@@ -449,7 +609,9 @@ class QuizAnswerButtonView(discord.ui.View):
 					if _position is None:
 						_position = 0
 				logger.debug("Resuming track (Skip): %s at %s", pl_current.uri, _position)
-				await self.session.pl.play(pl_current, start=_position, volume=self.session.PL_VOLUME, paused=False)
+				await self.session.pl.play(
+					pl_current, start=_position, volume=await self.session.music_volume_for(pl_current), paused=False
+				)
 			except Exception:
 				logger.exception("スキップ後の楽曲再生に失敗しました")
 				self.session.NEXT.set()

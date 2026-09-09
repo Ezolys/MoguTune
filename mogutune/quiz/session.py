@@ -10,27 +10,38 @@ from os import getenv
 import discord
 import sonolink
 from discord.utils import MISSING
-from mogutune_core import answers, ranking, trackpool
+from mogutune_core import Mode, answers, ranking, trackpool
 from mogutune_core.models import is_same_track
+from mogutune_core.progression import VoteProgression
 from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
+from mogutune import normalizer
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
-from mogutune.quiz.track_adapter import TrackCollection, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
 from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
+from mogutune.track_adapter import TrackCollection, resolve_youtube_url, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # SFX に許可する Lavalink 内ディレクトリ (local ソースで identifier 解決する)
 SFX_LOCAL_DIR = "/opt/Lavalink/sfx/"
+
+
+def ready_threshold_met(votes: int, players: int, threshold: str) -> bool:
+	"""準備完了条件を満たしたかを返す (過半数は厳密に votes > players * 0.5)"""
+	if players <= 0:
+		return False
+	if threshold == "all":
+		return votes >= players
+	return votes > players * 0.5
 
 
 @dataclass
@@ -126,6 +137,19 @@ class QuizSession:
 	expect_user_next: bool = False
 	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
 
+	READY: asyncio.Event = field(default_factory=asyncio.Event)
+	"""準備完了待ちイベント"""
+	READY_TIMEOUT_SECONDS: int = 90
+	"""準備完了待ちのタイムアウト (秒)"""
+	ready_votes: set[int] = field(default_factory=set)
+	"""準備完了を宣言したユーザーID"""
+	ready_threshold: str = "majority"
+	"""準備完了条件 ("all" | "majority")。play() 開始時に設定からスナップショットする"""
+	progression_mode: Mode = Mode.VOTE
+	"""進行モード。play() 開始時に設定からスナップショットする"""
+	vote_progression: VoteProgression | None = None
+	"""投票による進行 (VOTE モードのみ生成)"""
+
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
 		if self.roster.is_joined(user_id):
@@ -210,6 +234,36 @@ class QuizSession:
 				return track
 		return None
 
+	async def music_volume_for(self, track: SonoPlayable) -> int:
+		"""トラックのラウドネス補正後の再生音量を返す (補正できない場合は元の音量)"""
+		return await normalizer.resolve_volume(track, self.PL_VOLUME)
+
+	async def _wait_lufs_analysis(self, start_msg: discord.Message) -> None:
+		"""全曲のラウドネス解析完了を待つ (進捗を準備完了メッセージの埋め込みに表示する)"""
+		if not (normalizer.ENABLED and normalizer.API_URL) or not self.q_tracks:
+			return
+		base_desc = start_msg.embeds[0].description
+
+		async def _progress(done: int, total: int) -> None:
+			try:
+				embed = start_msg.embeds[0]
+				embed.description = f"{base_desc}\n\n⏳ {t('msg.q.init.lufs_progress', done, total)}"
+				await start_msg.edit(embed=embed)
+			except discord.errors.NotFound:
+				pass
+			except Exception:
+				logger.debug("ラウドネス解析の進捗表示更新に失敗しました", exc_info=True)
+
+		try:
+			await normalizer.prefetch(self.q_tracks, progress=_progress if normalizer.PROGRESS else None)
+		finally:
+			try:
+				embed = start_msg.embeds[0]
+				embed.description = base_desc
+				await start_msg.edit(embed=embed)
+			except Exception:
+				logger.debug("ラウドネス解析の進捗表示の復元に失敗しました", exc_info=True)
+
 	@staticmethod
 	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
 		"""表示用の楽曲タイトルを返す"""
@@ -237,7 +291,7 @@ class QuizSession:
 			text = ""
 			if track.isrc is not None:
 				text += f"ISRC: {track.isrc}\n"
-			text += f"Author: {track.author}\nSource: {track.source_name}"
+			text += f"Source: {track.author} via {track.source_name}"
 			embed.set_footer(text=text)
 		return embed
 
@@ -399,7 +453,7 @@ class QuizSession:
 				_position = 0
 		logger.debug(f"Resuming track (Timeout): {track.uri} at {_position}")
 		try:
-			await self.pl.play(track, start=_position, volume=self.PL_VOLUME, paused=False)
+			await self.pl.play(track, start=_position, volume=await self.music_volume_for(track), paused=False)
 		except Exception:
 			logger.error("タイムアップ後の楽曲再生に失敗しました")
 			logger.error(traceback.format_exc())
@@ -435,6 +489,8 @@ class QuizSession:
 		self.restore_track_after_sfx = True
 		self.sfx_track_playing = None
 		self.answer_pause_position = 0
+		self.ready_votes.clear()
+		self.vote_progression = None
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -485,8 +541,8 @@ class QuizSession:
 			self.sfx_track_playing = track
 			await self.pl.play(track, volume=self.PL_SFX_VOLUME, paused=False)
 
-			# SFXの再生終了を待つ
-			await self.SFX_FINISHED.wait()
+			# SFXの再生終了を待つ (イベント喪失時の永久停止を防ぐためタイムアウト付き。TimeoutError は下の except で復帰処理が走る)
+			await asyncio.wait_for(self.SFX_FINISHED.wait(), timeout=track.length / 1000 + 10)
 
 		except Exception:
 			logger.error("SFXの再生に失敗しました。")
@@ -497,7 +553,7 @@ class QuizSession:
 					await self.pl.play(
 						self.original_track_before_sfx,
 						start=self.original_position_before_sfx,
-						volume=self.PL_VOLUME,
+						volume=await self.music_volume_for(self.original_track_before_sfx),
 						paused=not self.was_playing_before_sfx,
 					)
 					if not self.was_playing_before_sfx:
@@ -525,9 +581,11 @@ class QuizSession:
 			if posixpath.normpath(query) != query or not query.startswith(SFX_LOCAL_DIR):
 				logger.warning("SFX再生中止 - 許可されていないパスです: %s", query)
 				return None
-			# ローカルファイルは Lavalink の local ソース (local: プレフィックス) で解決する
-			# (search_track のデフォルト source は ytsearch のため、パスを渡すと検索として解釈される)
-			sfx_result = unpack_search(await client.sl_client.search_track(query, source="local"))
+			# ローカルファイルは Lavalink v4 の local ソースで解決する (identifier = 生の絶対パス)。
+			# sonolink の source="local" は identifier に local: プレフィックスを付けてしまい、
+			# LavaPlayer 側で除去されずファイル不在扱いになる。また Client.search_track の
+			# デフォルト source は ytsearch のため、source=None を明示してパスを素通しする
+			sfx_result = unpack_search(await client.sl_client.search_track(query, source=None))
 		else:
 			sfx_result = unpack_search(await client.sl_client.search_track(query))
 		if isinstance(sfx_result, SonoPlayable):
@@ -538,53 +596,8 @@ class QuizSession:
 		return None
 
 	async def resolve_youtube_track_uri(self, track: SonoPlayable) -> str | None:
-		"""トラックのYouTube URLを解決する"""
-		if track.source_name == "youtube":
-			return track.uri
-
-		# ISRC を取得してみる
-		_isrc = track.isrc
-
-		# ISRC がない場合は plugin_info から探してみる
-		if _isrc is None:
-			_plugin_info = getattr(track.data, "plugin_info", None)
-			if isinstance(_plugin_info, dict) and _plugin_info:
-				_isrc = _plugin_info.get("isrc")
-
-		async def _search_first(query: str, source: sonolink.TrackSourceType) -> SonoPlayable | None:
-			_search_result = unpack_search(await client.sl_client.search_track(query, source=source))
-			if isinstance(_search_result, SonoPlayable):
-				return _search_result
-			if isinstance(_search_result, list) and len(_search_result) > 0:
-				return _search_result[0]
-			return None
-
-		logger.info(f"Searching YouTube for: {track.author} - {track.title} (ISRC: {_isrc})")
-		try:
-			if _isrc:
-				_found = await _search_first(f'"{_isrc}"', sonolink.TrackSourceType.YOUTUBE_MUSIC)
-			else:
-				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
-			if _found is not None:
-				_uri = _found.uri
-				logger.info(f"Found YouTube track (ISRC): {_uri}")
-				return _uri
-			# ISRC で見つからなかった場合はタイトルで再検索
-			if _isrc:
-				logger.warning("YouTube track not found via ISRC. Retrying with title...")
-				_found = await _search_first(f"{track.author} - {track.title}", sonolink.TrackSourceType.YOUTUBE)
-				if _found is not None:
-					_uri = _found.uri
-					logger.info(f"Found YouTube track (Title): {_uri}")
-					return _uri
-				logger.warning("YouTube track not found via title search.")
-			else:
-				logger.warning("YouTube track not found via search.")
-		except Exception:
-			logger.error("Failed to search YouTube track.")
-			logger.error(traceback.format_exc())
-
-		return None
+		"""トラックのYouTube URLを解決する (本体は track_adapter.resolve_youtube_url に移動)"""
+		return await resolve_youtube_url(track)
 
 	async def end(self) -> None:
 		"""クイズを終了する"""
@@ -597,10 +610,14 @@ class QuizSession:
 
 		# 待機状態を解除してループを回す
 		self.NEXT.set()
+		# 準備完了待機中に終了された場合も即座に解除する
+		self.READY.set()
+		# SFX 再生待ちで停止している場合も解除する (イベント喪失時の救済)
+		self.SFX_FINISHED.set()
 
 	async def play(self, tracks: TrackCollection, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
-		from mogutune.quiz.views import QuizAnswerButtonView, QuizReplayButtonView  # noqa: PLC0415
+		from mogutune.quiz.views import QuizAnswerButtonView, QuizReadyButtonView, QuizReplayButtonView  # noqa: PLC0415
 
 		try:
 			self.playing = True
@@ -628,6 +645,12 @@ class QuizSession:
 					logger.error("view_channel_missing 通知失敗")
 					logger.error(traceback.format_exc())
 				return await DebugLogger.report_internal_error("クイズ開始処理失敗: Channel is not Voice Channel")
+
+			# 設定を読み込み、クイズ中の設定はスナップショットする (途中変更は次回以降のクイズに反映)
+			settings = await guild_settings_manager.get(self.guild_id)
+			self.ready_threshold = settings.ready_threshold
+			self.progression_mode = Mode(settings.progression_mode)
+			self.vote_progression = VoteProgression(threshold_ratio=0.5) if self.progression_mode is Mode.VOTE else None
 
 			# 送信権限チェック（VCテキストチャットへの送信可否）
 			try:
@@ -688,6 +711,9 @@ class QuizSession:
 			self.q_tracks = to_sono_tracks(core_questions, self.q_original_tracks)
 			self.q_tracks_count = q_count
 
+			# ラウドネス解析の非同期先読み (問題1再生中に 2 問目以降の解析を完了させる)
+			normalizer.start_prefetch(self.q_tracks)
+
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
 			logger.debug("- プレイヤー一覧生成")
@@ -724,20 +750,63 @@ class QuizSession:
 				playlist_title = playlist_title_prefix + ": **" + tracks.name + "**"
 
 			# 埋め込みメッセージを生成
+			description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
+			# 準備完了の案内行を追記 (ループ内の毎問更新では元の description に戻る)
+			description += "\n\n" + t("msg.q.ready.hint", t(f"cmd.settings.ready_threshold.{self.ready_threshold}"))
 			start_msg_embed = EmbedsTemplates.info(
 				title=t("msg.q.init.title"),
-				description=t("msg.q.init.description", playlist_title, q_count, player_list_text),
+				description=description,
 				icon="▶️",
 			)
 			# ジャケットを設定
 			start_msg_embed.set_thumbnail(url=artwork_url)
 
-			# クイズ開始メッセージを送信
-			start_msg = await self._send_to_vc(embed=start_msg_embed)
+			# クイズ開始メッセージを送信 (準備完了ボタン付き)
+			start_msg = await self._send_to_vc(embed=start_msg_embed, view=QuizReadyButtonView(self.guild_id))
 			if start_msg is None:
 				self.playing = False
 				self.reset()
 				return False
+
+			# 準備完了待ち (条件成立またはタイムアウトまで)
+			self.READY.clear()
+			try:
+				await asyncio.wait_for(self.READY.wait(), timeout=self.READY_TIMEOUT_SECONDS)
+			except TimeoutError:
+				try:
+					await start_msg.delete()
+				except discord.errors.NotFound:
+					pass
+				except discord.errors.HTTPException:
+					logger.exception("準備完了メッセージの削除に失敗しました")
+				await self._send_to_vc(
+					embed=EmbedsTemplates.warning(
+						title=t("msg.q.ready_timeout.title"),
+						description=t("msg.q.ready_timeout.description"),
+						icon="⏹️",
+					)
+				)
+				self.playing = False
+				self.reset()
+				return False
+			if not self.playing:
+				try:
+					await start_msg.delete()
+				except discord.errors.NotFound:
+					pass
+				except discord.errors.HTTPException:
+					logger.exception("準備完了メッセージの削除に失敗しました")
+				return False  # 待機中に end() された場合 (全員退出など)
+
+			# 準備完了成立後は start_msg から準備完了ボタンを外す
+			try:
+				await start_msg.edit(view=None)
+			except discord.errors.NotFound:
+				pass
+
+			# 全曲のラウドネス解析完了を待つ (間に合わなかった曲は原音で再生され、後からバックグラウンドで補正される)
+			await self._wait_lufs_analysis(start_msg)
+
 			# 問題開始メッセージを送信
 			q_msg = await self._send_to_vc(
 				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
@@ -782,6 +851,9 @@ class QuizSession:
 
 				self.NEXT.clear()
 				self.expect_user_next = False
+				# 前の問題の進行投票をリセットする
+				if self.vote_progression is not None:
+					self.vote_progression.reset()
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
@@ -789,6 +861,9 @@ class QuizSession:
 
 				# SFX
 				await self.play_sfx(SFX.Q)
+				# SFX 再生中に end() された場合は問題を開始しない
+				if not self.playing:
+					break
 
 				# 問題開始時刻を更新
 				self.q_start_time = datetime.datetime.now(tz=datetime.UTC)
@@ -800,7 +875,7 @@ class QuizSession:
 
 				# 再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
 				logger.debug("再生状態 - paused: %s, position: %s, volume: %s", self.pl.paused, self.pl.position, self.PL_VOLUME)
-				await self.pl.play(q, volume=self.PL_VOLUME, paused=False)
+				await self.pl.play(q, volume=await self.music_volume_for(q), paused=False)
 				await self.NEXT.wait()  # 待機
 				if not self.is_skipping_current_q_by_exception:
 					await self.pl.pause()  # 念の為一時停止
@@ -1113,3 +1188,18 @@ class QuizSession:
 		player.incorrect()
 		self.ANSWERED.set()
 		return None
+
+
+if __name__ == "__main__":
+	# ready_threshold_met の純粋ロジックの自己チェック
+	# majority: 厳密に votes > players * 0.5
+	assert ready_threshold_met(0, 3, "majority") is False  # noqa: S101
+	assert ready_threshold_met(1, 3, "majority") is False  # noqa: S101
+	assert ready_threshold_met(2, 3, "majority") is True  # noqa: S101
+	assert ready_threshold_met(1, 2, "majority") is False  # noqa: S101
+	assert ready_threshold_met(1, 1, "majority") is True  # noqa: S101
+	assert ready_threshold_met(0, 0, "majority") is False  # noqa: S101
+	# all: 全員
+	assert ready_threshold_met(2, 3, "all") is False  # noqa: S101
+	assert ready_threshold_met(3, 3, "all") is True  # noqa: S101
+	print("ready_threshold_met self-check passed")  # noqa: T201
