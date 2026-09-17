@@ -17,7 +17,7 @@ from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
-from mogutune import normalizer
+from mogutune import leaderboard, normalizer
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
@@ -162,6 +162,8 @@ class QuizSession:
 
 	q_results: dict[int, int | None] = field(default_factory=dict)
 	"""問題番号ごとの正解者ID (None は正解者なし。終了していない問題は含まれない)"""
+	participants: set[int] = field(default_factory=set)
+	"""クイズに参加したユーザーID (途中退出者も含む。リーダーボードの集計対象)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -169,6 +171,7 @@ class QuizSession:
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
 		self.roster.add_player(user_id)
+		self.participants.add(user_id)
 
 	async def remove_player(self, user_id: int) -> RemoveReason:
 		"""プレイヤーを削除する
@@ -1007,6 +1010,15 @@ class QuizSession:
 			except Exception:
 				logger.error("- 終了メッセージ送信/ランキング生成エラー")
 				logger.error(traceback.format_exc())
+
+			# リーダーボードへ結果を記録する (失敗しても終了処理は継続する)
+			try:
+				stats = leaderboard.build_quiz_stats(self.q_results, self.participants, self.current_q_number)
+				await leaderboard.record_quiz_results(self.guild_id, stats, datetime.datetime.now(tz=datetime.UTC))
+			except Exception:
+				logger.error("- リーダーボード記録エラー")
+				logger.error(traceback.format_exc())
+				await DebugLogger.report_internal_error(traceback.format_exc())
 
 			logger.debug("クイズ終了")
 			# 終了
