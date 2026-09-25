@@ -161,9 +161,9 @@ class QuizSession:
 	"""投票による進行 (VOTE モードのみ生成)"""
 
 	q_results: dict[int, int | None] = field(default_factory=dict)
-	"""問題番号ごとの正解者ID (None は正解者なし。終了していない問題は含まれない)"""
-	participants: set[int] = field(default_factory=set)
-	"""クイズに参加したユーザーID (途中退出者も含む。リーダーボードの集計対象)"""
+	"""問題番号ごとの正解者ID (None は正解者なし。開始していない問題は含まれない)"""
+	participant_questions: dict[int, int] = field(default_factory=dict)
+	"""参加したユーザーIDごとの参加問題数 (途中参加・途中退出を反映する。リーダーボードの集計対象)"""
 
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
@@ -171,7 +171,7 @@ class QuizSession:
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
 		self.roster.add_player(user_id)
-		self.participants.add(user_id)
+		self.participant_questions.setdefault(user_id, 0)
 
 	async def remove_player(self, user_id: int) -> RemoveReason:
 		"""プレイヤーを削除する
@@ -198,7 +198,11 @@ class QuizSession:
 	async def join_queued_players(self) -> None:
 		"""参加待ちのプレイヤー全員を参加させる"""
 		logger.debug("参加待ちプレイヤー参加")
+		queued = list(self.roster.queue)
 		self.roster.join_queued_players()
+		# roster へ直接参加するため、リーダーボード集計用の参加者もここで登録する
+		for user_id in queued:
+			self.participant_questions.setdefault(user_id, 0)
 
 	def is_player_joined(self, user_id: int) -> bool:
 		"""プレイヤーが参加しているかどうかを返す"""
@@ -224,9 +228,7 @@ class QuizSession:
 		lines: list[str] = []
 		for p in self.roster.players:
 			member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
-			if member is None:
-				continue
-			name = member.mention or member.display_name
+			name = str(p.id) if member is None else (member.mention or member.display_name)
 			lines.append(f"  - {name}")
 		# 「他 N 人」行の分を確保してから切り詰める
 		kept, omitted = truncate_lines(lines, max(0, max_chars - USER_LINE_MIN_WIDTH), min_line_width=USER_LINE_MIN_WIDTH)
@@ -344,24 +346,20 @@ class QuizSession:
 			if entry.rank > len(RANK_ICONS):
 				break
 			member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, entry.player_id)
-			pn = "Unknown"
-			if member is not None:
-				pn = member.mention or member.display_name
+			pn = str(entry.player_id) if member is None else (member.mention or member.display_name)
 
 			pt = t("cmd.play.ranking.point") if entry.point == 1 else t("cmd.play.ranking.points")
 			lines.append(f"{rank_icon(entry.rank)} {pn}: **`{entry.point}`** {pt}")
 		return lines
 
 	async def _question_result_lines(self) -> list[str]:
-		"""問題ごとの正解者表示行を生成する (終了した問題のみ)"""
+		"""問題ごとの正解者表示行を生成する (中断された問題は「正解者なし」扱い)"""
 		lines: list[str] = []
 		for number, track in enumerate(self.q_tracks or [], 1):
 			if number > self.current_q_number:
 				break
-			if number not in self.q_results:
-				continue
 			title = self.format_track_title(track, max_length=80)
-			player_id = self.q_results[number]
+			player_id = self.q_results.get(number)
 			if player_id is None:
 				who = t("msg.q.end.questions.nobody")
 			else:
@@ -574,6 +572,7 @@ class QuizSession:
 		self.ready_votes.clear()
 		self.vote_progression = None
 		self.q_results = {}
+		self.participant_questions = {}
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -946,6 +945,13 @@ class QuizSession:
 				# 解答ができる状態にする
 				self.can_answered = True
 
+				# 問題が実際に開始した時点で結果を「正解者なし」として記録する
+				self.q_results.setdefault(self.current_q_number, None)
+
+				# 参加中プレイヤーの参加問題数を加算する (問題が実際に開始した時点で数える)
+				for player in self.roster.players:
+					self.participant_questions[player.id] = self.participant_questions.get(player.id, 0) + 1
+
 				logger.debug("- 再生開始")
 
 				# 再生 (SonoLink の play() は現在の paused 状態を引き継ぐため明示的に解除する)
@@ -1013,7 +1019,7 @@ class QuizSession:
 
 			# リーダーボードへ結果を記録する (失敗しても終了処理は継続する)
 			try:
-				stats = leaderboard.build_quiz_stats(self.q_results, self.participants, self.current_q_number)
+				stats = leaderboard.build_quiz_stats(self.q_results, self.participant_questions)
 				await leaderboard.record_quiz_results(self.guild_id, stats, datetime.datetime.now(tz=datetime.UTC))
 			except Exception:
 				logger.error("- リーダーボード記録エラー")

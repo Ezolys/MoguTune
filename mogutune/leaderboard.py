@@ -13,7 +13,7 @@ from pymongo import UpdateOne
 
 if TYPE_CHECKING:
 	import datetime
-	from collections.abc import Iterable
+	from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +59,21 @@ class LeaderboardEntry:
 		return cls(user_id=user_id, correct=_int("correct"), questions=_int("questions"), quizzes=_int("quizzes"))
 
 
-def build_quiz_stats(q_results: dict[int, int | None], participants: Iterable[int], question_count: int) -> list[QuizStats]:
-	"""問題別結果と参加者から加算値を生成する (正解0人でも参加者は questions を加算する)"""
+def build_quiz_stats(q_results: dict[int, int | None], question_counts: Mapping[int, int]) -> list[QuizStats]:
+	"""問題別結果とプレイヤーごとの参加問題数から加算値を生成する"""
 	correct_counts: dict[int, int] = {}
 	for player_id in q_results.values():
 		if player_id is not None:
 			correct_counts[player_id] = correct_counts.get(player_id, 0) + 1
-	user_ids = set(participants) | set(correct_counts)
-	return [QuizStats(user_id=user_id, correct=correct_counts.get(user_id, 0), questions=question_count) for user_id in sorted(user_ids)]
+	user_ids = set(question_counts) | set(correct_counts)
+	return [
+		QuizStats(
+			user_id=user_id,
+			correct=correct_counts.get(user_id, 0),
+			questions=question_counts.get(user_id, 0),
+		)
+		for user_id in sorted(user_ids)
+	]
 
 
 def accuracy_percent(correct: int, questions: int) -> float:
@@ -124,8 +131,10 @@ if __name__ == "__main__":
 	assert LeaderboardEntry.from_doc(None) is None  # noqa: S101
 	assert LeaderboardEntry.from_doc({"user_id": "x"}) is None  # noqa: S101
 	assert LeaderboardEntry.from_doc({"user_id": 1, "correct": -1}) == LeaderboardEntry(1, 0, 0, 0)  # noqa: S101
-	# 正解者は参加者に含まれ、途中退出者 (participants のみ) も questions が加算される
-	_stats = build_quiz_stats({1: 10, 2: None, 3: 10}, {10, 20}, 3)
-	assert _stats == [QuizStats(10, 2, 3), QuizStats(20, 0, 3)]  # noqa: S101
-	assert build_quiz_stats({}, set(), 0) == []  # noqa: S101
+	# 正解者は参加問題数に含まれ、途中退出者 (question_counts のみ) も加算される
+	_stats = build_quiz_stats({1: 10, 2: None, 3: 10}, {10: 3, 20: 2})
+	assert _stats == [QuizStats(10, 2, 3), QuizStats(20, 0, 2)]  # noqa: S101
+	# 正解者が question_counts に無い場合も questions は 0 として記録する
+	assert build_quiz_stats({5: 99}, {}) == [QuizStats(99, 1, 0)]  # noqa: S101
+	assert build_quiz_stats({}, {}) == []  # noqa: S101
 	print("leaderboard self-check passed")  # noqa: T201

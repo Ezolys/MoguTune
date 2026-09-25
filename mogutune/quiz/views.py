@@ -608,8 +608,8 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 解答ができない状態にする
 		self.session.can_answered = False
-		# 問題ごとの結果に「正解者なし」を記録する
-		self.session.q_results[self.session.current_q_number] = None
+		# 問題ごとの結果に「正解者なし」を記録する (正解済みの場合は上書きしない)
+		self.session.q_results.setdefault(self.session.current_q_number, None)
 
 		# 通知メッセージを表示させるために問題終了後の待機時間を4秒にする
 		self.session.q_wait_seconds = 4
