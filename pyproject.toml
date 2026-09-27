@@ -24,7 +24,7 @@ dev = [
 exclude-newer = "1 week"
 
 [tool.uv.sources]
-mogutune-core = { git = "https://github.com/Ezolys/MoguTune-Core.git", rev = "d1e4fbf6c3cd2138b8ec2651bffae695ab6f6232" }
+mogutune-core = { git = "https://github.com/Ezolys/MoguTune-Core.git", rev = "64acf3b0bc33938004685a98efb69ac50b8d26eb" }
 
 [tool.ruff]
 line-length = 140
