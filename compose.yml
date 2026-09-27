@@ -8,9 +8,9 @@ services:
       # Discord Bot Token [Required]
       TOKEN: ${TOKEN:?error}
 
-      # Music / SFX Volume [Option / Default: 10]
-      MUSIC_VOLUME: ${MUSIC_VOLUME:-10}
-      SFX_VOLUME: ${SFX_VOLUME:-20}
+      # Music / SFX Volume [Option]
+      MUSIC_VOLUME: ${MUSIC_VOLUME:-20}
+      SFX_VOLUME: ${SFX_VOLUME:-10}
 
       # Max Quiz Sessions [Option / Default: 0 (Unlimited)]
       MAX_SESSIONS: ${MAX_SESSIONS:-0}
