@@ -2,12 +2,8 @@ FROM python:3.13-slim-bookworm
 
 WORKDIR /code
 
-RUN apt-get update \
-&& apt-get install -y --no-install-recommends git \
-&& apt-get purge -y --auto-remove \
-&& rm -rf /var/lib/apt/lists/*
-
 COPY ./requirements.txt /code/requirements.txt
+COPY core/ /code/core/
 
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 

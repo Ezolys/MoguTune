@@ -3,8 +3,11 @@
 ## 開発コマンド
 
 ```bash
+# サブモジュール初期化 (clone 直後 / Core 更新後)
+git submodule update --init
+
 # 依存インストール
-uv pip install -r requirements.txt
+uv sync
 
 # リント (ruff select = ["ALL"], pyproject.toml で設定済み)
 ruff check mogutune/ main.py
@@ -15,16 +18,16 @@ ruff format mogutune/ main.py
 # ローカル実行
 python main.py
 
-# ロケール差分チェック (core リポジトリのテストで実施)
-# V:\MoguTune-Core で: uv run pytest tests/test_locales.py
+# ロケール差分チェック (core サブモジュールのテストで実施)
+# core ディレクトリで: uv run pytest tests/test_locales.py
 ```
 
-テストフレームワーク・型チェックは未導入 (core リポジトリには pytest あり)。
+テストフレームワーク・型チェックは未導入 (core サブモジュールには pytest あり)。
 
 ## Python / 環境
 
 - **Python 3.13 必須** (`.python-version` / `requires-python = ">=3.13"`)
-- パッケージ管理は **uv**。`requirements.txt` は `uv export` で自動生成（手編集禁止）。`[tool.uv] exclude-newer = "1 week"` で1週間以内のリリースのみ解決
+- パッケージ管理は **uv**。`mogutune-core` は `core/` サブモジュール (`MoguTune-Core`) を `[tool.uv.sources]` の editable path 参照で取り込み、サブモジュールのコミットで固定する。`requirements.txt` は `uv export -o requirements.txt --no-hashes --no-dev` で自動生成（手編集禁止）。`[tool.uv] exclude-newer = "1 week"` で1週間以内のリリースのみ解決
 - `main.py` は dotenv のロードを試みて失敗しても続行する（本番では compose で環境変数を注入）
 - **モジュール import 時の副作用**:
   - `mogutune/app.py` はモジュール読み込み時に `App.load_pyproject()` を実行する。**`pyproject.toml` が存在しないと失敗する**
@@ -33,6 +36,7 @@ python main.py
 
 ## アーキテクチャ要点
 
+- **リポジトリ構成**: `core/` は [MoguTune-Core](https://github.com/Ezolys/MoguTune-Core) の git submodule（クイズの純粋ロジック `mogutune_core` とロケールの単一ソース）。clone 時は `--recurse-submodules` が必要で、Core 更新は `cd core && git pull` → 親リポジトリで `git add core` してコミットする
 - **エントリポイント**: `main.py` → `mogutune/client.py:run()` で locale 読込 → Cog 読込 → コマンドのローカライズ → Bot 起動
 - **Cog のロード**: `client.load_extensions("mogutune.cogs.commands")` — Cog モジュールは `mogutune/cogs/commands/` 直下に `.py` ファイルとして置く（`dev.py` / `general.py` / `quiz.py`。`cogs/commands/` には `__init__.py` 不要）
 - **DB**: `mogutune_core.db.DBManager` (`mogutune-core` パッケージ) を `on_ready` で `connect()`（`DB_URI` / `DB_NAME` 環境変数必須、失敗時は `ConnectionError` 送出 → bot 側で `sys.exit(1)`）。全操作は `pymongo.AsyncMongoClient` 経由。コレクションは `presets` / `guild_settings` / `playlists` / `leaderboard` (`playlists` は `/playlist` コマンド、`leaderboard` は `/leaderboard` コマンドで扱う)
@@ -58,7 +62,7 @@ python main.py
 - ロケールファイル: **`mogutune-core` パッケージ内** (`mogutune_core/locales/{ja,en_GB}.json`、`importlib.resources` で読み込み)。単一ソース化のため bot リポジトリには置かない
 - `pycord-localizer` (`consider_user_locale=True`) でユーザー設定を反映
 - 存在しないロケールのリクエストは `en_GB` にフォールバック
-- ja/en_GB 間のキー差分は core リポジトリの `tests/test_locales.py` (pytest) で検出する。キーのリネームは禁止 (追加のみ許可)
+- ja/en_GB 間のキー差分は core サブモジュールの `tests/test_locales.py` (pytest) で検出する。キーのリネームは禁止 (追加のみ許可)
 
 ## デバッグモード
 
@@ -69,7 +73,7 @@ python main.py
 
 ## デプロイ
 
-`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント、Lavalink 側は `./sfx` を `/opt/Lavalink/sfx` に `:ro` でマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。
+`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント、Lavalink 側は `./sfx` を `/opt/Lavalink/sfx` に `:ro` でマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。`core/` サブモジュールは editable インストールのため `/code/core` へコピーするので、**ビルド前に `git submodule update --init` が必須**。ビルドコンテキストは `.dockerignore` で `.venv` / `__pycache__` / `.git` などを除外する。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。
 
 ## コードスタイル
 
