@@ -60,6 +60,47 @@ class QuizReplayButtonView(discord.ui.View):
 		await prepare_play(interaction, interaction.user, interaction.guild, self.query, q_count=self.q_count)
 
 
+class QuizEndView(QuizReplayButtonView):
+	"""終了メッセージのページ送り (問題ごとの正解者) 付きリプレイボタン"""
+
+	def __init__(self, query: str, q_count: int, embeds: list[discord.Embed], *args: object, **kwargs: object) -> None:
+		super().__init__(query, q_count, *args, **kwargs)
+		self.embeds = embeds
+		self.page = 0
+
+		if len(embeds) <= 1:
+			return
+
+		self.prev_button = discord.ui.Button(style=discord.ButtonStyle.secondary, emoji="⬅️", disabled=True)
+		self.prev_button.callback = self.prev_button_callback
+		self.page_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label=f"1/{len(embeds)}", disabled=True)
+		self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, emoji="➡️")
+		self.next_button.callback = self.next_button_callback
+		self.add_item(self.prev_button)
+		self.add_item(self.page_button)
+		self.add_item(self.next_button)
+
+	async def _show_page(self, interaction: discord.Interaction) -> None:
+		"""現在のページを表示する"""
+		self.prev_button.disabled = self.page == 0
+		self.next_button.disabled = self.page >= len(self.embeds) - 1
+		self.page_button.label = f"{self.page + 1}/{len(self.embeds)}"
+		try:
+			await interaction.response.edit_message(embed=self.embeds[self.page], view=self)
+		except discord.errors.NotFound:
+			pass
+
+	async def prev_button_callback(self, interaction: discord.Interaction) -> None:
+		if self.page > 0:
+			self.page -= 1
+		await self._show_page(interaction)
+
+	async def next_button_callback(self, interaction: discord.Interaction) -> None:
+		if self.page < len(self.embeds) - 1:
+			self.page += 1
+		await self._show_page(interaction)
+
+
 class QuizReadyButtonView(discord.ui.View):
 	"""準備完了ボタン (クイズ開始条件の投票)"""
 
@@ -567,6 +608,8 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 解答ができない状態にする
 		self.session.can_answered = False
+		# 問題ごとの結果に「正解者なし」を記録する (正解済みの場合は上書きしない)
+		self.session.q_results.setdefault(self.session.current_q_number, None)
 
 		# 通知メッセージを表示させるために問題終了後の待機時間を4秒にする
 		self.session.q_wait_seconds = 4

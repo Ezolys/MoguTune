@@ -1,0 +1,57 @@
+# Bot 単体用 (Lavalink を別サーバーで動かす場合)
+# 使い方: docker compose -f compose.bot.yml up -d --build
+services:
+  bot:
+    build: ./
+    restart: unless-stopped
+    volumes:
+      - '.:/code/logs'
+    environment:
+      # Discord Bot Token [Required]
+      TOKEN: ${TOKEN:?error}
+
+      # Music / SFX Volume [Option]
+      MUSIC_VOLUME: ${MUSIC_VOLUME:-20}
+      SFX_VOLUME: ${SFX_VOLUME:-10}
+
+      # Max Quiz Sessions [Option / Default: 0 (Unlimited)]
+      MAX_SESSIONS: ${MAX_SESSIONS:-0}
+
+      # MongoDB URI and DB Name [Required]
+      DB_URI: ${DB_URI:?error}
+      DB_NAME: ${DB_NAME:-mogutune}
+
+      # Lavalink v4 (Separate Server) [Required]
+      LAVALINK_HOST: ${LAVALINK_HOST:?error}
+      LAVALINK_PORT: ${LAVALINK_PORT:-2333}
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      LAVALINK_SECURE: ${LAVALINK_SECURE:-false}
+      LAVALINK_LABEL: ${LAVALINK_LABEL:-lavalink}
+
+      # SFX URL or File Path (Full Path) [Option]
+      SFX_QUIZ_CORRECT: ${SFX_QUIZ_CORRECT}
+      SFX_QUIZ_INCORRECT: ${SFX_QUIZ_INCORRECT}
+      SFX_QUIZ_Q: ${SFX_QUIZ_Q}
+      SFX_QUIZ_A: ${SFX_QUIZ_A}
+
+      # Backend API (YTMostReplayedAPI) URL and Secret [Option]
+      BACKEND_API_URL: ${BACKEND_API_URL}
+      BACKEND_API_SECRET: ${BACKEND_API_SECRET}
+
+      # Loudness Normalization [Option]
+      NORMALIZE_ENABLED: ${NORMALIZE_ENABLED:-true}
+      NORMALIZE_TARGET_LUFS: ${NORMALIZE_TARGET_LUFS:--14}
+      NORMALIZE_MAX_BOOST_DB: ${NORMALIZE_MAX_BOOST_DB:-14}
+      NORMALIZE_MAX_CUT_DB: ${NORMALIZE_MAX_CUT_DB:-10}
+      NORMALIZE_LIMITER_MAX_AMPLITUDE: ${NORMALIZE_LIMITER_MAX_AMPLITUDE:-0.95}
+      NORMALIZE_TIMEOUT_S: ${NORMALIZE_TIMEOUT_S:-2.0}
+
+      # Discord Server ID and Text Channel ID for debugging [Option]
+      DEBUG_LOG_GUILD_ID: ${DEBUG_LOG_GUILD_ID}
+      DEBUG_LOG_TEXT_CHANNEL_ID: ${DEBUG_LOG_TEXT_CHANNEL_ID}
+
+      # Uptime Kuma Push URL [Option]
+      UPTIME_KUMA_PUSH_URL: ${UPTIME_KUMA_PUSH_URL}
+
+      # Debug Mode (true/false) [Option]
+      DEBUG: ${DEBUG}

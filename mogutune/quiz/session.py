@@ -17,13 +17,23 @@ from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
-from mogutune import normalizer
+from mogutune import leaderboard, normalizer
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
+from mogutune.quiz.results import (
+	EMBED_DESCRIPTION_MAX,
+	LIST_MAX_CHARS,
+	MARGIN,
+	RANK_ICONS,
+	USER_LINE_MIN_WIDTH,
+	paginate_lines,
+	rank_icon,
+	truncate_lines,
+)
 from mogutune.settings import guild_settings_manager
 from mogutune.sfx import SFX
 from mogutune.track_adapter import TrackCollection, resolve_youtube_url, to_core_track, to_core_tracks, to_sono_tracks, unpack_search
@@ -150,12 +160,18 @@ class QuizSession:
 	vote_progression: VoteProgression | None = None
 	"""投票による進行 (VOTE モードのみ生成)"""
 
+	q_results: dict[int, int | None] = field(default_factory=dict)
+	"""問題番号ごとの正解者ID (None は正解者なし。開始していない問題は含まれない)"""
+	participant_questions: dict[int, int] = field(default_factory=dict)
+	"""参加したユーザーIDごとの参加問題数 (途中参加・途中退出を反映する。リーダーボードの集計対象)"""
+
 	async def add_player(self, user_id: int) -> None:
 		"""プレイヤーを追加"""
 		if self.roster.is_joined(user_id):
 			return
 		logger.debug(f"プレイヤー追加: {user_id}")
 		self.roster.add_player(user_id)
+		self.participant_questions.setdefault(user_id, 0)
 
 	async def remove_player(self, user_id: int) -> RemoveReason:
 		"""プレイヤーを削除する
@@ -182,7 +198,11 @@ class QuizSession:
 	async def join_queued_players(self) -> None:
 		"""参加待ちのプレイヤー全員を参加させる"""
 		logger.debug("参加待ちプレイヤー参加")
+		queued = list(self.roster.queue)
 		self.roster.join_queued_players()
+		# roster へ直接参加するため、リーダーボード集計用の参加者もここで登録する
+		for user_id in queued:
+			self.participant_questions.setdefault(user_id, 0)
 
 	def is_player_joined(self, user_id: int) -> bool:
 		"""プレイヤーが参加しているかどうかを返す"""
@@ -202,6 +222,19 @@ class QuizSession:
 	async def get_player(self, user_id: int) -> QuizPlayer | None:
 		"""プレイヤーを取得"""
 		return self.roster.get(user_id)
+
+	async def _player_list_text(self, max_chars: int) -> str:
+		"""参加者一覧テキストを生成する (上限を超える分は「他 N 人」に省略する)"""
+		lines: list[str] = []
+		for p in self.roster.players:
+			member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
+			name = str(p.id) if member is None else (member.mention or member.display_name)
+			lines.append(f"  - {name}")
+		# 「他 N 人」行の分を確保してから切り詰める
+		kept, omitted = truncate_lines(lines, max(0, max_chars - USER_LINE_MIN_WIDTH), min_line_width=USER_LINE_MIN_WIDTH)
+		if omitted:
+			kept.append(f"  - {t('msg.q.others', omitted)}")
+		return "\n".join(kept)
 
 	async def get_answer_tracks(self) -> list[SonoPlayable]:
 		"""解答候補のトラック一覧を生成"""
@@ -303,6 +336,51 @@ class QuizSession:
 			icon="❔",
 		)
 
+	async def _ranking_lines(self) -> list[str]:
+		"""トップ3 (順位が3位以内の同点者を含む) のランキング表示行を生成する"""
+		if len(self.roster.players) == 0:
+			return [t("msg.q.end.no_players")]
+
+		lines: list[str] = []
+		for entry in ranking.build_ranking(self.roster.players):
+			if entry.rank > len(RANK_ICONS):
+				break
+			member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, entry.player_id)
+			pn = str(entry.player_id) if member is None else (member.mention or member.display_name)
+
+			pt = t("cmd.play.ranking.point") if entry.point == 1 else t("cmd.play.ranking.points")
+			lines.append(f"{rank_icon(entry.rank)} {pn}: **`{entry.point}`** {pt}")
+		return lines
+
+	async def _question_result_lines(self) -> list[str]:
+		"""問題ごとの正解者表示行を生成する (中断された問題は「正解者なし」扱い)"""
+		lines: list[str] = []
+		for number, track in enumerate(self.q_tracks or [], 1):
+			if number > self.current_q_number:
+				break
+			title = self.format_track_title(track, max_length=80)
+			player_id = self.q_results.get(number)
+			if player_id is None:
+				who = t("msg.q.end.questions.nobody")
+			else:
+				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, player_id)
+				who = member.mention if member is not None else str(player_id)
+			lines.append(t("msg.q.end.questions.line", number, title, who))
+		return lines
+
+	def _end_embeds(self, ranking_text: str, question_lines: list[str]) -> list[discord.Embed]:
+		"""終了メッセージのページ一覧を生成する (問題が無い場合は1ページのみ)"""
+		base = t("msg.q.end.description", ranking_text)
+		if not question_lines:
+			return [EmbedsTemplates.info(title=t("msg.q.end.title"), description=base, icon="🏁")]
+
+		header = base + "\n\n" + t("msg.q.end.questions.title") + "\n"
+		budget = max(EMBED_DESCRIPTION_MAX - len(header) - MARGIN, 256)
+		return [
+			EmbedsTemplates.info(title=t("msg.q.end.title"), description=header + page, icon="🏁")
+			for page in paginate_lines(question_lines, budget)
+		]
+
 	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
 		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
 		if self.q_msg is None:
@@ -395,6 +473,7 @@ class QuizSession:
 		self.is_skipping_current_q_by_exception = True
 		self.can_answered = False
 		self.answering_player = None
+		self.q_results.setdefault(self.current_q_number, None)
 		self.refresh()
 		self.q_wait_seconds = 0
 
@@ -426,6 +505,7 @@ class QuizSession:
 		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
 
 		self.can_answered = False
+		self.q_results.setdefault(self.current_q_number, None)
 		self.q_wait_seconds = 4
 
 		_title = self.format_track_title(track, with_author=True)
@@ -491,6 +571,8 @@ class QuizSession:
 		self.answer_pause_position = 0
 		self.ready_votes.clear()
 		self.vote_progression = None
+		self.q_results = {}
+		self.participant_questions = {}
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -617,7 +699,7 @@ class QuizSession:
 
 	async def play(self, tracks: TrackCollection, q_count: int, owner_id: int, query: str) -> bool | str:  # noqa: C901, PLR0911, PLR0912, PLR0915
 		"""クイズを開始する"""
-		from mogutune.quiz.views import QuizAnswerButtonView, QuizReadyButtonView, QuizReplayButtonView  # noqa: PLC0415
+		from mogutune.quiz.views import QuizAnswerButtonView, QuizEndView, QuizReadyButtonView  # noqa: PLC0415
 
 		try:
 			self.playing = True
@@ -716,18 +798,6 @@ class QuizSession:
 
 			logger.debug(f"クイズ開始: {self.guild_id}/{self.channel_id}")
 
-			logger.debug("- プレイヤー一覧生成")
-			# プレイヤー一覧テキストを生成
-			player_mentions = []
-			for p in self.roster.players:
-				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, p.id)
-				if member is not None:
-					if member.mention:
-						player_mentions.append(member.mention)
-					else:
-						player_mentions.append(member.display_name)
-			player_list_text = "  - " + "\n  - ".join(player_mentions)
-
 			logger.debug("Tracks Plugin Info")
 			logger.debug(tracks.plugin_info)
 
@@ -748,6 +818,17 @@ class QuizSession:
 				playlist_title = playlist_title_prefix + ": [**" + tracks.name + "**](" + query + ")"
 			else:
 				playlist_title = playlist_title_prefix + ": **" + tracks.name + "**"
+
+			# プレイヤー一覧の表示上限 (残りの記述と準備完了の案内が埋め込みの上限に収まるようにする)
+			player_budget = (
+				EMBED_DESCRIPTION_MAX
+				- len(t("msg.q.init.description", playlist_title, q_count, ""))
+				- len("\n\n" + t("msg.q.ready.hint", t(f"cmd.settings.ready_threshold.{self.ready_threshold}")))
+				- MARGIN
+			)
+
+			logger.debug("- プレイヤー一覧生成")
+			player_list_text = await self._player_list_text(player_budget)
 
 			# 埋め込みメッセージを生成
 			description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
@@ -837,16 +918,9 @@ class QuizSession:
 
 				# プレイヤー一覧テキストを更新する
 				logger.debug("- プレイヤー一覧更新")
-				player_mentions = []
-				for p in self.roster.players:
-					member = await self.guild.get_or_fetch(discord.Member, p.id)
-					if member is not None:
-						if member.mention:
-							player_mentions.append(member.mention)
-						else:
-							player_mentions.append(member.display_name)
-				player_list_text = "  - " + "\n  - ".join(player_mentions)
-				start_msg.embeds[0].description = t("msg.q.init.description", playlist_title, q_count, player_list_text)
+				start_msg.embeds[0].description = t(
+					"msg.q.init.description", playlist_title, q_count, await self._player_list_text(player_budget)
+				)
 				await start_msg.edit(embed=start_msg.embeds[0])
 
 				self.NEXT.clear()
@@ -870,6 +944,13 @@ class QuizSession:
 
 				# 解答ができる状態にする
 				self.can_answered = True
+
+				# 問題が実際に開始した時点で結果を「正解者なし」として記録する
+				self.q_results.setdefault(self.current_q_number, None)
+
+				# 参加中プレイヤーの参加問題数を加算する (問題が実際に開始した時点で数える)
+				for player in self.roster.players:
+					self.participant_questions[player.id] = self.participant_questions.get(player.id, 0) + 1
 
 				logger.debug("- 再生開始")
 
@@ -920,39 +1001,30 @@ class QuizSession:
 
 			try:
 				logger.debug("ランキング生成")
-				# ランキングテキストを生成
-				if len(self.roster.players) == 0:  # プレイヤーが0人の場合は専用のメッセージを設定
-					ranking_list = [t("msg.q.end.no_players")]
-				else:
-					ranking_list = []
-					# ポイント順にソート (同点同順)
-					for entry in ranking.build_ranking(self.roster.players):
-						member = await self.guild.get_or_fetch(discord.Member, entry.player_id)
-						pn = "Unknown"
-						if member is not None:
-							pn = member.mention or member.display_name
+				# ランキングテキストを生成 (トップ3まで。表示上限を超える分は「他 N 人」に省略)
+				kept_ranking, omitted_ranking = truncate_lines(await self._ranking_lines(), LIST_MAX_CHARS)
+				if omitted_ranking:
+					kept_ranking.append(t("msg.q.others", omitted_ranking))
+				ranking_text = "\n".join(kept_ranking)
 
-						rank_icon = f"**{entry.rank}**"
-						if entry.rank == 1:
-							rank_icon = "🥇"
-						elif entry.rank == 2:
-							rank_icon = "🥈"
-						elif entry.rank == 3:
-							rank_icon = "🥉"
-
-						pt = t("cmd.play.ranking.point") if entry.point == 1 else t("cmd.play.ranking.points")
-						ranking_list.append(f"{rank_icon} {pn}: **`{entry.point}`** {pt}")
-				# 結合
-				ranking_text = "\n".join(ranking_list)
-
-				# 終了メッセージを送信する
+				# 問題ごとの正解者をページ分割して終了メッセージを送信する
+				embeds = self._end_embeds(ranking_text, await self._question_result_lines())
 				await self._send_to_vc(
-					embed=EmbedsTemplates.info(title=t("msg.q.end.title"), description=t("msg.q.end.description", ranking_text), icon="🏁"),
-					view=QuizReplayButtonView(self.query, q_count),  # 再度プレイボタン
+					embed=embeds[0],
+					view=QuizEndView(self.query, q_count, embeds),  # 再度プレイ + ページ送り
 				)
 			except Exception:
 				logger.error("- 終了メッセージ送信/ランキング生成エラー")
 				logger.error(traceback.format_exc())
+
+			# リーダーボードへ結果を記録する (失敗しても終了処理は継続する)
+			try:
+				stats = leaderboard.build_quiz_stats(self.q_results, self.participant_questions)
+				await leaderboard.record_quiz_results(self.guild_id, stats, datetime.datetime.now(tz=datetime.UTC))
+			except Exception:
+				logger.error("- リーダーボード記録エラー")
+				logger.error(traceback.format_exc())
+				await DebugLogger.report_internal_error(traceback.format_exc())
 
 			logger.debug("クイズ終了")
 			# 終了
@@ -1175,6 +1247,8 @@ class QuizSession:
 			correct_track = self.pl.current
 			# 正解
 			player.correct()
+			# 問題ごとの正解者を記録する (正解は1問につき1人)
+			self.q_results[self.current_q_number] = player.id
 			# 次の問題へ進む
 			# logger.debug("- 次の問題へ")
 			# self.NEXT.set()

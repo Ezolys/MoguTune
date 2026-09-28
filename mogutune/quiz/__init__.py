@@ -1,6 +1,7 @@
 __all__ = [
 	"QuizAnswerButtonView",
 	"QuizAnswerSelectView",
+	"QuizEndView",
 	"QuizNextQButtonView",
 	"QuizPlayer",
 	"QuizReplayButtonView",
@@ -27,6 +28,7 @@ from mogutune.quiz.session import QuizSession
 from mogutune.quiz.views import (
 	QuizAnswerButtonView,
 	QuizAnswerSelectView,
+	QuizEndView,
 	QuizNextQButtonView,
 	QuizReplayButtonView,
 )
