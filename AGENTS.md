@@ -73,7 +73,7 @@ python main.py
 
 ## デプロイ
 
-`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント、Lavalink 側は `./sfx` を `/opt/Lavalink/sfx` に `:ro` でマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。`core/` サブモジュールは editable インストールのため `/code/core` へコピーするので、**ビルド前に `git submodule update --init` が必須**。ビルドコンテキストは `.dockerignore` で `.venv` / `__pycache__` / `.git` などを除外する。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。
+`compose.yml` で `bot` + `lavalink` の2サービス（Bot 側は `./` を `/code/logs` にマウント、Lavalink 側は `./sfx` を `/opt/Lavalink/sfx` に `:ro` でマウント）。Bot イメージは `Dockerfile` で COPY 命令は指定ファイルのみ（全ファイルをコピーしない）。`core/` サブモジュールは editable インストールのため `/code/core` へコピーするので、**ビルド前に `git submodule update --init` が必須**。ビルドコンテキストは `.dockerignore` で `.venv` / `__pycache__` / `.git` などを除外する。Lavalink は `Dockerfile.lavalink` + `application.yml` の設定を使い、`lavasrc-plugin` と `youtube-plugin` が必須。環境変数はすべて `.env.example` に定義。Bot と Lavalink を別サーバーで動かす場合は `compose.bot.yml`（Bot のみ。`LAVALINK_HOST` は `${LAVALINK_HOST:?error}` で必須）と `compose.lavalink.yml`（Lavalink のみ。`./sfx` マウントはこちら側）を使い、それぞれ `docker compose -f compose.bot.yml up -d --build` / `docker compose -f compose.lavalink.yml up -d --build` で起動する。`lavalink-plugins` ボリュームは各 compose ファイルで top-level `volumes` に宣言する（未宣言だと Compose v5 以降で `invalid compose project` になる）。
 
 ## コードスタイル
 
