@@ -61,13 +61,13 @@ class QuizCommands(discord.Cog):
 					)
 
 	async def get_presets(self, ctx: discord.AutocompleteContext) -> list[discord.OptionChoice]:
-		"""プレイリストのプリセットとサーバーのプレイリストをDiscordのコマンドオプションの選択肢として取得する"""
+		"""プリセットとサーバーに登録されたお気に入りプレイリストをDiscordのコマンドオプションの選択肢として取得する"""
 		# 入力内容が0文字の場合のみ一覧を返す
 		# インタラクションの言語に合わせて一覧を取得する 存在しない場合は英語のを返す
 		if ctx.value == "":
 			# キャッシュのリストを直接変更しないようコピーしてからプレイリストを追加する
 			choices = list(self.preset_choices.get(ctx.interaction.locale or "en-GB", self.preset_choices["en-GB"]))
-			# サーバーに保存されたプレイリストを追加する (value は `playlist:<id>` 形式)
+			# サーバーに登録されたお気に入りプレイリストを追加する (value は `playlist:<id>` 形式)
 			guild_id = ctx.interaction.guild_id
 			if guild_id is not None:
 				docs = await DBManager.col_playlists.find({"guild_id": guild_id}).to_list(length=100)
@@ -76,7 +76,7 @@ class QuizCommands(discord.Cog):
 					name = info.get("name", "")
 					desc = info.get("description", "")
 					title_desc = f"{name} | {desc}" if isinstance(desc, str) and desc != "" else name
-					label = f"[{self.i18n.translate(text='cmd.play.query_playlist', lang=lang)}] " + title_desc
+					label = f"[{self.i18n.translate(text='cmd.play.query_preset', lang=lang)}] " + title_desc
 					if len(label) > AUTOCOMPLETE_LABEL_MAX:
 						label = label[:AUTOCOMPLETE_LABEL_MAX]
 					choices.append(discord.OptionChoice(name=label, value="playlist:" + str(info.get("_id", ""))))

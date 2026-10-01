@@ -7,7 +7,6 @@ import discord
 import sonolink
 from mogutune_core.db import DBManager
 from pycord.localizer import t
-from sonolink.models import Playable as SonoPlayable
 from sonolink.models import Playlist as SonoPlaylist
 
 from mogutune import maintenance
@@ -185,86 +184,47 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 		# 検索ソース
 		search_source = sonolink.TrackSourceType.YOUTUBE_MUSIC
 
-		# 楽曲コンテナ (URLプレイリスト / DBプレイリスト共通)
-		tracks: TrackCollection | None = None
-
+		# 登録済みのプリセット (お気に入りプレイリスト) が指定された場合は URL を取得して通常のURLとして扱う
 		if query.startswith("playlist:"):
-			# DB に保存されたプレイリストを読み込む
-			playlist_id = query[len("playlist:") :]
-			doc = await DBManager.col_playlists.find_one({"_id": playlist_id, "guild_id": guild.id})
-			if doc is None:
+			preset_id = query[len("playlist:") :]
+			preset = Playlist.from_doc(await DBManager.col_playlists.find_one({"_id": preset_id, "guild_id": guild.id}))
+			if preset is None:
 				await _leave_vc(voice_channel.guild)
 				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
 				return
-			playlist = Playlist.from_doc(doc)
-			if playlist is None:
-				await _leave_vc(voice_channel.guild)
-				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.playlist_not_found")))
-				return
+			query = preset.url
 
-			# 各楽曲を再検索して sonolink.Playable を再構築する (取得失敗した楽曲はスキップ)
-			semaphore = asyncio.Semaphore(10)
-
-			async def fetch_playlist_track(uri: str) -> SonoPlayable | None:
-				async with semaphore:
-					try:
-						result = unpack_search(await client.sl_client.search_track(uri, source=search_source))
-					except Exception:
-						logger.exception("プレイリストの楽曲取得失敗: %s", uri)
-						return None
-					if result is None:
-						logger.warning("プレイリストの楽曲が見つかりません: %s", uri)
-						return None
-					if isinstance(result, SonoPlaylist):
-						candidates = result.tracks
-					elif isinstance(result, SonoPlayable):
-						candidates = [result]
-					else:
-						candidates = result
-					if not candidates:
-						logger.warning("プレイリストの楽曲が見つかりません: %s", uri)
-						return None
-					return next((t for t in candidates if t.uri == uri), candidates[0])
-
-			# ponytail: 全曲を並列再検索 (上限500曲)。開始が数十秒かかる場合は上限引き下げか track_id 保存で緩和する
-			playlist_tracks = [t for t in await asyncio.gather(*(fetch_playlist_track(t.uri) for t in playlist.tracks)) if t is not None]
-			tracks = TrackCollection(tracks=playlist_tracks, name=playlist.name, plugin_info=None)
-			if not tracks.tracks:
-				await _leave_vc(voice_channel.guild)
-				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
-				return
-		else:
-			# プレイリストを検索
-			logger.debug("プレイリスト検索 - %s: %s", search_source, query)
-			try:
-				playlist_result = unpack_search(await client.sl_client.search_track(query, source=search_source))
-			except Exception:
-				await _leave_vc(voice_channel.guild)
-				await safe_edit(
-					msg,
-					embed=EmbedsTemplates.internal_error(
-						description=t("cmd.play.tracks_fetch_error"),
-						error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
-					),
-				)
-				return
-
-			# プレイリスト (楽曲) が見つからない場合
-			if not playlist_result:
-				await _leave_vc(voice_channel.guild)
-				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
-				return
-			# 指定されたクエリーがプレイリストではない場合
-			if not isinstance(playlist_result, SonoPlaylist):
-				await _leave_vc(voice_channel.guild)
-				await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
-				return
-
-			tracks = TrackCollection(
-				tracks=playlist_result.tracks,
-				name=playlist_result.name,
-				plugin_info=playlist_result.extras,
+		# プレイリストを検索
+		logger.debug("プレイリスト検索 - %s: %s", search_source, query)
+		try:
+			playlist_result = unpack_search(await client.sl_client.search_track(query, source=search_source))
+		except Exception:
+			await _leave_vc(voice_channel.guild)
+			await safe_edit(
+				msg,
+				embed=EmbedsTemplates.internal_error(
+					description=t("cmd.play.tracks_fetch_error"),
+					error_code=await DebugLogger.report_internal_error(traceback.format_exc()),
+				),
 			)
+			return
+
+		# プレイリスト (楽曲) が見つからない場合
+		if not playlist_result:
+			await _leave_vc(voice_channel.guild)
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.no_tracks_found")))
+			return
+		# 指定されたクエリーがプレイリストではない場合
+		if not isinstance(playlist_result, SonoPlaylist):
+			await _leave_vc(voice_channel.guild)
+			await safe_edit(msg, embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")))
+			return
+
+		tracks = TrackCollection(
+			tracks=playlist_result.tracks,
+			name=playlist_result.name,
+			plugin_info=playlist_result.extras,
+		)
 
 		# クイズセッションを新規作成
 		session = quiz_session_manager.create_session(guild.id, voice_channel.id, player, query, text_channel_id=text_channel_id)

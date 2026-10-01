@@ -8,7 +8,6 @@ import discord
 import sonolink
 import uuid_utils as uuid
 from discord.ext import commands
-from mogutune_core import trackpool
 from mogutune_core.db import DBManager
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
@@ -17,30 +16,81 @@ from sonolink.models import Playlist as SonoPlaylist
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
-from mogutune.playlists import (
-	MAX_PLAYLISTS_PER_GUILD,
-	MAX_TRACKS_PER_PLAYLIST,
-	Playlist,
-	dedupe_track_docs,
-)
-from mogutune.track_adapter import to_core_tracks, to_sono_tracks, to_stored_track_dict, unpack_search
+from mogutune.playlists import MAX_PLAYLISTS_PER_GUILD, Playlist
+from mogutune.quiz.results import paginate_lines
+from mogutune.track_adapter import unpack_search
 from mogutune.url_query_labels import get_url_autocomplete_choice
 
 logger = logging.getLogger(__name__)
 
-DETAIL_TRACK_LIST_MAX = 10
-"""プレイリスト詳細で一覧表示する楽曲数の上限"""
+LIST_PAGE_MAX_CHARS = 3800
+"""一覧の1ページあたりの最大文字数 (埋め込み description の上限 4096 に余裕を持たせる)"""
+LIST_PAGE_TIMEOUT_S = 120
+"""一覧のページ送りのタイムアウト (秒)"""
 AUTOCOMPLETE_LABEL_MAX = 100
 """オートコンプリートの選択肢ラベルの最大文字数"""
+
+
+class PresetListView(discord.ui.View):
+	"""登録済みプレイリスト一覧のページ送り"""
+
+	def __init__(self, pages: list[str], author_id: int) -> None:
+		super().__init__(timeout=LIST_PAGE_TIMEOUT_S)
+		self.pages = pages
+		self.author_id = author_id
+		self.page = 0
+
+		self.prev_button = discord.ui.Button(style=discord.ButtonStyle.secondary, emoji="⬅️", disabled=True)
+		self.prev_button.callback = self.prev_button_callback
+		self.page_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label=f"1/{len(pages)}", disabled=True)
+		self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, emoji="➡️")
+		self.next_button.callback = self.next_button_callback
+		self.add_item(self.prev_button)
+		self.add_item(self.page_button)
+		self.add_item(self.next_button)
+
+	async def interaction_check(self, interaction: discord.Interaction) -> bool:
+		"""コマンド実行者以外のページ操作を拒否する"""
+		if interaction.user is not None and interaction.user.id == self.author_id:
+			return True
+		await interaction.response.send_message(
+			embed=EmbedsTemplates.error(description=t("cmd.playlist.list.not_author")),
+			ephemeral=True,
+			delete_after=3,
+		)
+		return False
+
+	async def _show_page(self, interaction: discord.Interaction) -> None:
+		"""現在のページを表示する"""
+		self.prev_button.disabled = self.page == 0
+		self.next_button.disabled = self.page >= len(self.pages) - 1
+		self.page_button.label = f"{self.page + 1}/{len(self.pages)}"
+		try:
+			await interaction.response.edit_message(embed=self._embed(), view=self)
+		except discord.errors.NotFound:
+			pass
+
+	def _embed(self) -> discord.Embed:
+		return EmbedsTemplates.info(title=t("cmd.playlist.list.title"), description=self.pages[self.page], icon="📋")
+
+	async def prev_button_callback(self, interaction: discord.Interaction) -> None:
+		if self.page > 0:
+			self.page -= 1
+		await self._show_page(interaction)
+
+	async def next_button_callback(self, interaction: discord.Interaction) -> None:
+		if self.page < len(self.pages) - 1:
+			self.page += 1
+		await self._show_page(interaction)
 
 
 class PlaylistCommands(discord.Cog):
 	def __init__(self, bot: discord.Bot) -> None:
 		self.bot = bot
 
-	playlist = discord.SlashCommandGroup(
-		"playlist",
-		"プレイリストを管理します。",
+	preset = discord.SlashCommandGroup(
+		"preset",
+		"お気に入りのプレイリストを登録・管理します。",
 		default_member_permissions=discord.Permissions(manage_guild=True),
 	)
 
@@ -81,37 +131,17 @@ class PlaylistCommands(discord.Cog):
 			logger.exception("楽曲取得失敗: %s", url)
 			return None
 
-	async def _fetch_single_track_doc(self, url: str) -> dict | None:
-		"""単一トラックの URL を解決して保存用サブドキュメントを返す (単一トラックでない・失敗時は None)"""
-		result = await self._fetch(url)
-		if isinstance(result, SonoPlayable):
-			return to_stored_track_dict(result)
-		if not isinstance(result, list) or not result:
-			return None
-		return to_stored_track_dict(result[0])
-
-	async def _fetch_playlist_track_docs(self, url: str) -> list[dict] | None:
-		"""プレイリスト URL を解決して保存用サブドキュメントの一覧を返す (単一トラック・失敗時は None)"""
-		result = await self._fetch(url)
-		if not isinstance(result, SonoPlaylist):
-			return None
-		# 重複した楽曲を除く (core で判定し、URI で sonolink.Playable へ引き戻す)
-		unique_core_tracks = trackpool.dedupe(to_core_tracks(result.tracks))
-		unique_sono_tracks = to_sono_tracks(unique_core_tracks, result.tracks)
-		return [to_stored_track_dict(t) for t in unique_sono_tracks]
-
-	@playlist.command(name="new")
+	@preset.command(name="add")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
-	async def new_playlist(
+	async def add_playlist(
 		self,
 		ctx: discord.ApplicationContext,
-		name: discord.Option(str, required=True),  # pyright: ignore[reportInvalidTypeForm]
-		description: discord.Option(str, required=True),  # pyright: ignore[reportInvalidTypeForm]
-		uri: discord.Option(str, required=False, autocomplete=get_url_choice),  # pyright: ignore[reportInvalidTypeForm]
-		tracks: discord.Option(str, required=False),  # pyright: ignore[reportInvalidTypeForm]
+		url: discord.Option(str, required=True, autocomplete=get_url_choice),  # pyright: ignore[reportInvalidTypeForm]
+		name: discord.Option(str, required=False),  # pyright: ignore[reportInvalidTypeForm]
+		description: discord.Option(str, required=False),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
-		"""プレイリストを新規作成する"""
+		"""お気に入りのプレイリストを登録する"""
 		# ギルド限定コマンドのため guild_id は必ず存在する
 		assert ctx.guild_id is not None  # noqa: S101
 		try:
@@ -124,116 +154,79 @@ class PlaylistCommands(discord.Cog):
 				)
 				return
 
-			# uri (プレイリスト) と tracks (楽曲) の一覧を取得してマージする
-			track_docs: list[dict] = []
-			if uri is not None:
-				_uri_tracks = await self._fetch_playlist_track_docs(uri)
-				if _uri_tracks is None:
-					await ctx.respond(
-						embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")),
-						ephemeral=True,
-					)
-					return
-				track_docs.extend(_uri_tracks)
-			if tracks is not None:
-				for url in tracks.split():
-					track_doc = await self._fetch_single_track_doc(url)
-					if track_doc is not None:
-						track_docs.append(track_doc)
-			track_docs = dedupe_track_docs(track_docs)
-
-			# 楽曲数上限チェック
-			if len(track_docs) > MAX_TRACKS_PER_PLAYLIST:
+			# 同じ URL の重複登録チェック
+			if await DBManager.col_playlists.find_one({"guild_id": ctx.guild_id, "url": url}) is not None:
 				await ctx.respond(
-					embed=EmbedsTemplates.error(description=t("cmd.playlist.error.track_limit")),
+					embed=EmbedsTemplates.warning(description=t("cmd.playlist.add.error.already_registered")),
 					ephemeral=True,
 				)
 				return
 
+			# URL を解決してプレイリストか検証する (曲リストは保存せず曲数のみ記録する)
+			result = await self._fetch(url)
+			if not isinstance(result, SonoPlaylist):
+				await ctx.respond(
+					embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")),
+					ephemeral=True,
+				)
+				return
+
+			track_count = len(result.tracks)
+			preset_name = (name or "").strip() or result.name
 			doc = {
 				"_id": str(uuid.uuid7()),
 				"guild_id": ctx.guild_id,
-				"name": name,
-				"description": description,
+				"name": preset_name,
+				"description": (description or "").strip(),
+				"url": url,
+				"track_count": track_count,
 				"author_id": ctx.author.id,
 				"created_at": datetime.datetime.now(tz=datetime.UTC),
-				"tracks": track_docs,
 			}
 			await DBManager.col_playlists.insert_one(doc)
 
-			if track_docs:
-				await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.playlist.new.created", name, len(track_docs))))
-			else:
-				await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.playlist.new.created_empty", name)))
+			await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.playlist.add.registered", preset_name, track_count, url)))
 		except Exception:
-			logger.exception("プレイリスト作成エラー")
+			logger.exception("プレイリスト登録エラー")
 			await ctx.respond(
 				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
 				ephemeral=True,
 			)
 
-	@playlist.command(name="add")
+	@preset.command(name="list")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
-	async def add_tracks(
-		self,
-		ctx: discord.ApplicationContext,
-		playlist: discord.Option(str, required=True, autocomplete=get_playlists),  # pyright: ignore[reportInvalidTypeForm]
-		urls: discord.Option(str, required=True),  # pyright: ignore[reportInvalidTypeForm]
-	) -> None:
-		"""プレイリストに楽曲を追加する"""
+	async def list_playlists(self, ctx: discord.ApplicationContext) -> None:
+		"""登録済みのプレイリスト一覧を表示する"""
 		# ギルド限定コマンドのため guild_id は必ず存在する
 		assert ctx.guild_id is not None  # noqa: S101
 		try:
-			doc = await DBManager.col_playlists.find_one({"_id": playlist, "guild_id": ctx.guild_id})
-			if doc is None:
-				await ctx.respond(
-					embed=EmbedsTemplates.error(description=t("cmd.playlist.error.not_found")),
-					ephemeral=True,
-				)
-				return
-
-			existing_uris = {t.get("uri") for t in doc.get("tracks", []) if isinstance(t, dict) and isinstance(t.get("uri"), str)}
-			valid_docs: list[dict] = []
-			valid_uris: set[str] = set()
-			skipped = 0
-			for url in urls.split():
-				track_doc = await self._fetch_single_track_doc(url)
-				uri = track_doc.get("uri") if track_doc is not None else None
-				if track_doc is None or not isinstance(uri, str) or uri in existing_uris or uri in valid_uris:
-					skipped += 1
-					continue
-				valid_docs.append(track_doc)
-				valid_uris.add(uri)
-
-			if not valid_docs:
-				await ctx.respond(
-					embed=EmbedsTemplates.error(description=t("cmd.playlist.add.error.no_valid_tracks")),
-					ephemeral=True,
-				)
-				return
-
-			# 楽曲数上限チェック (追加後の合計が上限を超える場合は何も追加しない)
-			if len(existing_uris) + len(valid_docs) > MAX_TRACKS_PER_PLAYLIST:
-				await ctx.respond(
-					embed=EmbedsTemplates.error(description=t("cmd.playlist.error.track_limit")),
-					ephemeral=True,
-				)
-				return
-
-			await DBManager.col_playlists.update_one(
-				{"_id": playlist, "guild_id": ctx.guild_id},
-				{"$push": {"tracks": {"$each": valid_docs}}},
+			docs = (
+				await DBManager.col_playlists.find({"guild_id": ctx.guild_id}).sort("created_at", 1).to_list(length=MAX_PLAYLISTS_PER_GUILD)
 			)
-			await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.playlist.add.result", len(valid_docs), skipped)))
+			playlists = [pl for pl in (Playlist.from_doc(doc) for doc in docs) if pl is not None]
+			if not playlists:
+				await ctx.respond(
+					embed=EmbedsTemplates.info(description=t("cmd.playlist.list.empty")),
+					ephemeral=True,
+				)
+				return
+
+			lines = [t("cmd.playlist.list.line", pl.name, pl.track_count, pl.url) for pl in playlists]
+			pages = paginate_lines(lines, LIST_PAGE_MAX_CHARS)
+			view = PresetListView(pages, ctx.author.id) if len(pages) > 1 else None
+			await ctx.respond(
+				embed=EmbedsTemplates.info(title=t("cmd.playlist.list.title"), description=pages[0], icon="📋"),
+				view=view,
+			)
 		except Exception:
-			logger.exception("プレイリスト楽曲追加エラー")
+			logger.exception("プレイリスト一覧表示エラー")
 			await ctx.respond(
 				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
 				ephemeral=True,
 			)
 
-	@playlist.command(name="edit")
+	@preset.command(name="edit")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
 	async def edit_playlist(
@@ -277,7 +270,7 @@ class PlaylistCommands(discord.Cog):
 				ephemeral=True,
 			)
 
-	@playlist.command(name="delete")
+	@preset.command(name="delete")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
 	async def delete_playlist(
@@ -285,7 +278,7 @@ class PlaylistCommands(discord.Cog):
 		ctx: discord.ApplicationContext,
 		playlist: discord.Option(str, required=True, autocomplete=get_playlists),  # pyright: ignore[reportInvalidTypeForm]
 	) -> None:
-		"""プレイリストを削除する"""
+		"""プレイリストの登録を解除する"""
 		# ギルド限定コマンドのため guild_id は必ず存在する
 		assert ctx.guild_id is not None  # noqa: S101
 		try:
@@ -304,7 +297,7 @@ class PlaylistCommands(discord.Cog):
 				ephemeral=True,
 			)
 
-	@playlist.command(name="detail")
+	@preset.command(name="detail")
 	@discord.guild_only()
 	@commands.cooldown(2, 5)
 	async def detail_playlist(
@@ -317,12 +310,6 @@ class PlaylistCommands(discord.Cog):
 		assert ctx.guild_id is not None  # noqa: S101
 		try:
 			doc = await DBManager.col_playlists.find_one({"_id": playlist, "guild_id": ctx.guild_id})
-			if doc is None:
-				await ctx.respond(
-					embed=EmbedsTemplates.error(description=t("cmd.playlist.error.not_found")),
-					ephemeral=True,
-				)
-				return
 			pl = Playlist.from_doc(doc)
 			if pl is None:
 				await ctx.respond(
@@ -331,7 +318,7 @@ class PlaylistCommands(discord.Cog):
 				)
 				return
 
-			# 作成者名を取得 (在籍していない場合は ID を表示)
+			# 登録者名を取得 (在籍していない場合は ID を表示)
 			author_label = str(pl.author_id)
 			if ctx.guild is not None:
 				member = await ctx.guild.get_or_fetch(discord.Member, pl.author_id)
@@ -341,21 +328,10 @@ class PlaylistCommands(discord.Cog):
 			embed = EmbedsTemplates.info(title=t("cmd.playlist.detail.title"), icon="📋")
 			embed.add_field(name=t("cmd.playlist.detail.name"), value=pl.name, inline=False)
 			embed.add_field(name=t("cmd.playlist.detail.description"), value=pl.description or "-", inline=False)
+			embed.add_field(name=t("cmd.playlist.detail.url"), value=pl.url, inline=False)
 			embed.add_field(name=t("cmd.playlist.detail.author"), value=author_label, inline=True)
 			embed.add_field(name=t("cmd.playlist.detail.created_at"), value=f"<t:{int(pl.created_at.timestamp())}:f>", inline=True)
-			embed.add_field(name=t("cmd.playlist.detail.track_count"), value=str(len(pl.tracks)), inline=True)
-
-			if pl.tracks:
-				lines = []
-				for track in pl.tracks[:DETAIL_TRACK_LIST_MAX]:
-					title = track.title if track.title != "" else track.uri
-					label = f"{title} - {track.author}" if track.author != "" else title
-					lines.append(f"- {label}")
-				if len(pl.tracks) > DETAIL_TRACK_LIST_MAX:
-					lines.append(t("cmd.playlist.detail.tracks_more", len(pl.tracks) - DETAIL_TRACK_LIST_MAX))
-				embed.add_field(name=t("cmd.playlist.detail.tracks"), value="\n".join(lines), inline=False)
-			else:
-				embed.add_field(name=t("cmd.playlist.detail.tracks"), value=t("cmd.playlist.detail.tracks_empty"), inline=False)
+			embed.add_field(name=t("cmd.playlist.detail.track_count"), value=str(pl.track_count), inline=True)
 
 			await ctx.respond(embed=embed)
 		except Exception:
