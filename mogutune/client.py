@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import traceback
-from asyncio import sleep
+from asyncio import sleep, wait_for
 from os import getenv
 
 import discord
@@ -119,8 +119,13 @@ async def update_presets() -> None:
 	await client.get_cog("QuizCommands").load_presets(i18n)
 
 
-# 5分に1回 Lavalink ノードの接続を確認し、全断なら再接続を試みる (起動時失敗は終了済みのため警告に留める)
-@tasks.loop(minutes=5)
+# Lavalink ノード監視の設定
+LAVALINK_CHECK_INTERVAL_MINUTES = 5
+LAVALINK_HEALTHCHECK_TIMEOUT_S = 10.0
+
+
+# 5分に1回 Lavalink ノードの接続を確認し、未接続・応答不能なら再接続を試みる (起動時失敗は終了済みのため警告に留める)
+@tasks.loop(minutes=LAVALINK_CHECK_INTERVAL_MINUTES)
 async def check_lavalink_nodes() -> None:
 	if not client.sl_started:
 		return
@@ -133,13 +138,31 @@ async def check_lavalink_nodes() -> None:
 		# ノード登録自体がない状態は通常発生しない (start() も対象がないため再接続できない)
 		logger.warning("Lavalink ノードが登録されていません")
 		return
-	if all(n.is_connected for n in nodes):
-		return
-	logger.warning("Lavalink ノードが未接続のため再接続を試みます")
-	try:
-		await client.sl_client.start()
-	except Exception:
-		logger.exception("Lavalink ノードの再接続に失敗")
+
+	for node in nodes:
+		# 接続処理中のノードは sonolink 側の自動再接続に任せる
+		if node.is_connecting:
+			continue
+
+		if not node.is_connected:
+			# sonolink の自動再接続が retries を使い切った後は connect() が無視されるため reconnect() を使う
+			logger.warning("Lavalink ノード %s が未接続のため再接続を試みます", node.id)
+		else:
+			# 接続中でも REST が応答しない場合はゾンビ接続とみなす
+			try:
+				await wait_for(node.fetch_info(), timeout=LAVALINK_HEALTHCHECK_TIMEOUT_S)
+			except Exception as e:
+				logger.warning("Lavalink ノード %s が応答しないため再接続を試みます: %s", node.id, e)
+			else:
+				continue
+
+		try:
+			await node.reconnect()
+		except RuntimeError as e:
+			# すでに sonolink 側で再接続が始まっていた場合など
+			logger.warning("Lavalink ノード %s の再接続をスキップ: %s", node.id, e)
+		except Exception:
+			logger.exception("Lavalink ノード %s の再接続に失敗", node.id)
 
 
 # アプリケーションコマンド実行時のイベント
