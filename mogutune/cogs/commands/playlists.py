@@ -145,10 +145,13 @@ class PlaylistCommands(discord.Cog):
 		# ギルド限定コマンドのため guild_id は必ず存在する
 		assert ctx.guild_id is not None  # noqa: S101
 		try:
+			# URL 解決に時間がかかってもよいように先に応答を保留する (3秒制限対策)
+			await ctx.defer(ephemeral=True)
+
 			# ギルドごとの上限チェック
 			playlist_count = await DBManager.col_playlists.count_documents({"guild_id": ctx.guild_id})
 			if playlist_count >= MAX_PLAYLISTS_PER_GUILD:
-				await ctx.respond(
+				await ctx.followup.send(
 					embed=EmbedsTemplates.error(description=t("cmd.playlist.error.guild_limit")),
 					ephemeral=True,
 				)
@@ -156,7 +159,7 @@ class PlaylistCommands(discord.Cog):
 
 			# 同じ URL の重複登録チェック
 			if await DBManager.col_playlists.find_one({"guild_id": ctx.guild_id, "url": url}) is not None:
-				await ctx.respond(
+				await ctx.followup.send(
 					embed=EmbedsTemplates.warning(description=t("cmd.playlist.add.error.already_registered")),
 					ephemeral=True,
 				)
@@ -165,7 +168,7 @@ class PlaylistCommands(discord.Cog):
 			# URL を解決してプレイリストか検証する (曲リストは保存せず曲数のみ記録する)
 			result = await self._fetch(url)
 			if not isinstance(result, SonoPlaylist):
-				await ctx.respond(
+				await ctx.followup.send(
 					embed=EmbedsTemplates.error(description=t("cmd.play.not_a_playlist_url")),
 					ephemeral=True,
 				)
@@ -185,10 +188,13 @@ class PlaylistCommands(discord.Cog):
 			}
 			await DBManager.col_playlists.insert_one(doc)
 
-			await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.playlist.add.registered", preset_name, track_count, url)))
+			await ctx.followup.send(
+				embed=EmbedsTemplates.success(description=t("cmd.playlist.add.registered", preset_name, track_count, url)),
+				ephemeral=True,
+			)
 		except Exception:
 			logger.exception("プレイリスト登録エラー")
-			await ctx.respond(
+			await ctx.followup.send(
 				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
 				ephemeral=True,
 			)
