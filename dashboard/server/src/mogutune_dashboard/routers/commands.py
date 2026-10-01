@@ -37,54 +37,51 @@ async def command_summary(
 ) -> dict:
 	"""コマンド実行回数の集計 (合計・成功率・コマンド別・日別・サーバー別) を返す"""
 	settings = get_settings()
-	rows = (
-		await db["command_logs"]
-		.aggregate(
-			[
-				{"$match": _match(days, guild_id)},
-				{
-					"$facet": {
-						"total": [{"$count": "count"}],
-						"errors": [{"$match": {"ok": False}}, {"$count": "count"}],
-						"by_command": [
-							{
-								"$group": {
-									"_id": "$command",
-									"count": {"$sum": 1},
-									"errors": {"$sum": {"$cond": ["$ok", 0, 1]}},
-								}
-							},
-							{"$sort": {"count": -1}},
-							{"$limit": 10},
-						],
-						"by_day": [
-							{
-								"$group": {
-									"_id": date_string_expr("created_at", settings.timezone),
-									"count": {"$sum": 1},
-									"errors": {"$sum": {"$cond": ["$ok", 0, 1]}},
-								}
-							},
-							{"$sort": {"_id": 1}},
-						],
-						"by_guild": [
-							{"$match": {"guild_id": {"$ne": None}}},
-							{
-								"$group": {
-									"_id": "$guild_id",
-									"guild_name": {"$last": "$guild_name"},
-									"count": {"$sum": 1},
-								}
-							},
-							{"$sort": {"count": -1}},
-							{"$limit": 10},
-						],
-					}
-				},
-			]
-		)
-		.to_list(length=1)
+	cursor = await db["command_logs"].aggregate(
+		[
+			{"$match": _match(days, guild_id)},
+			{
+				"$facet": {
+					"total": [{"$count": "count"}],
+					"errors": [{"$match": {"ok": False}}, {"$count": "count"}],
+					"by_command": [
+						{
+							"$group": {
+								"_id": "$command",
+								"count": {"$sum": 1},
+								"errors": {"$sum": {"$cond": ["$ok", 0, 1]}},
+							}
+						},
+						{"$sort": {"count": -1}},
+						{"$limit": 10},
+					],
+					"by_day": [
+						{
+							"$group": {
+								"_id": date_string_expr("created_at", settings.timezone),
+								"count": {"$sum": 1},
+								"errors": {"$sum": {"$cond": ["$ok", 0, 1]}},
+							}
+						},
+						{"$sort": {"_id": 1}},
+					],
+					"by_guild": [
+						{"$match": {"guild_id": {"$ne": None}}},
+						{
+							"$group": {
+								"_id": "$guild_id",
+								"guild_name": {"$last": "$guild_name"},
+								"count": {"$sum": 1},
+							}
+						},
+						{"$sort": {"count": -1}},
+						{"$limit": 10},
+					],
+				}
+			},
+		]
 	)
+	rows = await cursor.to_list(length=1)
 	facet = rows[0] if rows else {}
 	total = _first_count(facet.get("total"))
 	errors = _first_count(facet.get("errors"))

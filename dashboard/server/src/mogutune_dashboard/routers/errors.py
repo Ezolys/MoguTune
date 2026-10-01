@@ -27,44 +27,41 @@ async def error_summary(
 ) -> dict:
 	"""内部エラーの発生数 (合計・直近24時間・日別・発生元別・シグネチャ別) を返す"""
 	settings = get_settings()
-	rows = (
-		await db["internal_errors"]
-		.aggregate(
-			[
-				{"$match": {"created_at": {"$gte": days_ago(days)}}},
-				{
-					"$facet": {
-						"total": [{"$count": "count"}],
-						"last_24h": [{"$match": {"created_at": {"$gte": days_ago(1)}}}, {"$count": "count"}],
-						"by_day": [
-							{"$group": {"_id": date_string_expr("created_at", settings.timezone), "count": {"$sum": 1}}},
-							{"$sort": {"_id": 1}},
-						],
-						"by_source": [
-							{"$group": {"_id": "$source", "count": {"$sum": 1}}},
-							{"$sort": {"count": -1}},
-							{"$limit": 10},
-						],
-						"signatures": [
-							{
-								"$group": {
-									"_id": "$traceback_hash",
-									"count": {"$sum": 1},
-									"source": {"$last": "$source"},
-									"description": {"$last": "$description"},
-									"error_code": {"$last": "$_id"},
-									"last_seen": {"$max": "$created_at"},
-								}
-							},
-							{"$sort": {"last_seen": -1}},
-							{"$limit": SIGNATURE_LIMIT},
-						],
-					}
-				},
-			]
-		)
-		.to_list(length=1)
+	cursor = await db["internal_errors"].aggregate(
+		[
+			{"$match": {"created_at": {"$gte": days_ago(days)}}},
+			{
+				"$facet": {
+					"total": [{"$count": "count"}],
+					"last_24h": [{"$match": {"created_at": {"$gte": days_ago(1)}}}, {"$count": "count"}],
+					"by_day": [
+						{"$group": {"_id": date_string_expr("created_at", settings.timezone), "count": {"$sum": 1}}},
+						{"$sort": {"_id": 1}},
+					],
+					"by_source": [
+						{"$group": {"_id": "$source", "count": {"$sum": 1}}},
+						{"$sort": {"count": -1}},
+						{"$limit": 10},
+					],
+					"signatures": [
+						{
+							"$group": {
+								"_id": "$traceback_hash",
+								"count": {"$sum": 1},
+								"source": {"$last": "$source"},
+								"description": {"$last": "$description"},
+								"error_code": {"$last": "$_id"},
+								"last_seen": {"$max": "$created_at"},
+							}
+						},
+						{"$sort": {"last_seen": -1}},
+						{"$limit": SIGNATURE_LIMIT},
+					],
+				}
+			},
+		]
 	)
+	rows = await cursor.to_list(length=1)
 	facet = rows[0] if rows else {}
 	days_list = recent_days(days, ZoneInfo(settings.timezone))
 	return {

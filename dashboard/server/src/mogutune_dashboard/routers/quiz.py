@@ -59,32 +59,29 @@ async def quiz_summary(
 	if guild_id is not None:
 		match["guild_id"] = guild_id
 
-	rows = (
-		await db["quiz_history"]
-		.aggregate(
-			[
-				{"$match": match},
-				{
-					"$facet": {
-						"total": [{"$count": "count"}],
-						"completed": [{"$match": {"$expr": {"$gte": ["$completed_questions", "$question_total"]}}}, {"$count": "count"}],
-						"participants": [{"$group": {"_id": None, "count": {"$sum": {"$size": "$participants"}}}}],
-						"by_day": [
-							{
-								"$group": {
-									"_id": date_string_expr("ended_at", settings.timezone),
-									"count": {"$sum": 1},
-									"participants": {"$sum": {"$size": "$participants"}},
-								}
-							},
-							{"$sort": {"_id": 1}},
-						],
-					}
-				},
-			]
-		)
-		.to_list(length=1)
+	cursor = await db["quiz_history"].aggregate(
+		[
+			{"$match": match},
+			{
+				"$facet": {
+					"total": [{"$count": "count"}],
+					"completed": [{"$match": {"$expr": {"$gte": ["$completed_questions", "$question_total"]}}}, {"$count": "count"}],
+					"participants": [{"$group": {"_id": None, "count": {"$sum": {"$size": "$participants"}}}}],
+					"by_day": [
+						{
+							"$group": {
+								"_id": date_string_expr("ended_at", settings.timezone),
+								"count": {"$sum": 1},
+								"participants": {"$sum": {"$size": "$participants"}},
+							}
+						},
+						{"$sort": {"_id": 1}},
+					],
+				}
+			},
+		]
 	)
+	rows = await cursor.to_list(length=1)
 	facet = rows[0] if rows else {}
 	total = _first_count(facet.get("total"))
 	days_list = recent_days(days, ZoneInfo(settings.timezone))

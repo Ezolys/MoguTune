@@ -121,12 +121,14 @@ GUILD_SYNC_INTERVAL_MINUTES = 10
 
 def _guild_info(guild: discord.Guild) -> telemetry.GuildInfo:
 	"""discord.Guild からテレメトリ用のサーバー情報を生成する"""
+	# pycord の Guild には joined_at が無いため、Bot 自身の Member から取得する (取得できない場合は None)
+	me = guild.me
 	return telemetry.GuildInfo(
 		id=guild.id,
 		name=guild.name,
 		member_count=guild.member_count or 0,
 		icon_url=guild.icon.url if guild.icon is not None else None,
-		joined_at=guild.joined_at,
+		joined_at=me.joined_at if me is not None else None,
 	)
 
 
@@ -402,9 +404,12 @@ async def on_ready() -> None:
 		logger.error("内部エラー報告機能の初期化に失敗")
 		logger.error(traceback.format_exc())
 
-	# ダッシュボード向けテレメトリの初期化
-	await telemetry.ensure_indexes()
-	await telemetry.sync_guilds([_guild_info(guild) for guild in client.guilds])
+	# ダッシュボード向けテレメトリの初期化 (失敗しても on_ready の残りを止めない)
+	try:
+		await telemetry.ensure_indexes()
+		await telemetry.sync_guilds([_guild_info(guild) for guild in client.guilds])
+	except Exception:
+		logger.exception("テレメトリの初期化に失敗")
 
 	# ステータス表示を更新
 	await client.change_presence(
