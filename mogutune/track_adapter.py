@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrackCollection:
-	"""session.play が受け取る楽曲コンテナ (sonolink.Playlist / DBプレイリスト共通)"""
+	"""session.play が受け取る楽曲コンテナ (sonolink.Playlist 由来の曲リスト共通)"""
 
 	tracks: list[SonoPlayable]
 	name: str
@@ -60,18 +60,6 @@ def to_sono_track(core_track: CoreTrack, source_tracks: list[SonoPlayable]) -> S
 def to_sono_tracks(core_tracks: list[CoreTrack], source_tracks: list[SonoPlayable]) -> list[SonoPlayable]:
 	"""core.Track の一覧を URI で元の sonolink.Playable の一覧へ引き戻す"""
 	return [t for t in (to_sono_track(c, source_tracks) for c in core_tracks) if t is not None]
-
-
-def to_stored_track_dict(track: SonoPlayable) -> dict:
-	"""sonolink.Playable を DB の楽曲サブドキュメントへ変換する (管理用メタデータのみ)"""
-	core = to_core_track(track)
-	return {
-		"uri": core.uri,
-		"title": core.title,
-		"author": core.author,
-		"isrc": core.isrc,
-		"chorus_ms": None,
-	}
 
 
 def unpack_search(result: SearchResult) -> SonoPlayable | list[SonoPlayable] | SonoPlaylist | None:
