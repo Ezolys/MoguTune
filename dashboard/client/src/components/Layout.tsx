@@ -61,12 +61,10 @@ export function Layout() {
 				<label htmlFor="nav-drawer" aria-label="メニューを閉じる" className="drawer-overlay" />
 				<aside className="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-200">
 					<div className="flex items-center gap-3 px-4 py-4">
-						<span className="grid size-9 place-items-center rounded-box bg-primary/15 text-primary">
-							<AudioLines className="size-5" />
-						</span>
+						<img src="/logo.png" alt="" className="size-9 shrink-0" />
 						<div>
 							<p className="font-display font-extrabold text-lg leading-none tracking-wide">MoguTune</p>
-							<p className="mt-0.5 font-mono text-[9px] tracking-[0.25em] text-base-content/40 uppercase">Control Room</p>
+							<p className="mt-0.5 font-mono text-[10px] tracking-[0.06em] text-base-content/40">Dashboard</p>
 						</div>
 					</div>
 					<ul className="menu w-full flex-1 gap-0.5 px-2 py-2">
