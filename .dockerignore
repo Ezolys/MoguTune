@@ -5,6 +5,8 @@
 **/.pytest_cache
 **/.ruff_cache
 **/.opencode
+**/.openchamber
+**/node_modules
 **/dist
 logs
 **/tests

@@ -1,5 +1,7 @@
+import datetime
 import json
 import logging
+import math
 import os
 import sys
 import traceback
@@ -13,6 +15,7 @@ from mogutune_core.db import DBManager
 from pycord.localizer import t
 from sonolink.models import InactivitySettings
 
+from mogutune import telemetry
 from mogutune.app import App
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
@@ -30,6 +33,9 @@ class Bot(commands.Bot):
 
 		intents = discord.Intents.default()
 		intents.voice_states = True
+
+		# ダッシュボード表示用の起動時刻
+		self.started_at = datetime.datetime.now(tz=datetime.UTC)
 
 		# Lavalink (SonoLink)
 		self.sl_client: sonolink.Client = sonolink.Client(self, framework="pycord")
@@ -105,6 +111,75 @@ if getenv("DEBUG", "false").lower() == "true":
 	else:
 		logger.warning("DEBUG=true ですが DEBUG_GUILD_ID が未設定のため、グローバルコマンドとして登録されます")
 i18n = Localization(client)
+
+# ダッシュボード向けテレメトリの設定
+BOT_STATUS_INTERVAL_SECONDS = 30
+"""稼働状況をダッシュボードへ記録する間隔 (秒)"""
+GUILD_SYNC_INTERVAL_MINUTES = 10
+"""サーバー一覧を再同期する間隔 (分)"""
+
+
+def _guild_info(guild: discord.Guild) -> telemetry.GuildInfo:
+	"""discord.Guild からテレメトリ用のサーバー情報を生成する"""
+	return telemetry.GuildInfo(
+		id=guild.id,
+		name=guild.name,
+		member_count=guild.member_count or 0,
+		icon_url=guild.icon.url if guild.icon is not None else None,
+		joined_at=guild.joined_at,
+	)
+
+
+def _build_bot_status() -> dict:
+	"""ダッシュボードへ記録する稼働状況のスナップショットを生成する"""
+	from mogutune.quiz import quiz_session_manager  # noqa: PLC0415
+
+	sessions: list[dict] = []
+	for session in quiz_session_manager.sessions.values():
+		try:
+			sessions.append(session.status_snapshot())
+		except Exception:
+			logger.exception("クイズセッションの状態取得に失敗")
+
+	nodes: list[dict] = []
+	try:
+		for node in client.sl_client.nodes:
+			stats = node.stats
+			nodes.append(
+				{
+					"id": node.id,
+					"connected": node.is_connected,
+					"connecting": node.is_connecting,
+					"players": getattr(stats, "players", None),
+					"playing_players": getattr(stats, "playing_players", None),
+				}
+			)
+	except Exception:
+		logger.exception("Lavalink ノードの状態取得に失敗")
+
+	return {
+		"version": App.VERSION_STRING,
+		"commit": App.get_git_commit_hash()[:7],
+		# 未接続時は latency が NaN になるため 0 として扱う
+		"latency_ms": 0 if math.isnan(client.latency) else round(client.latency * 1000),
+		"guild_count": len(client.guilds),
+		"user_count": sum(guild.member_count or 0 for guild in client.guilds),
+		"active_sessions": sessions,
+		"lavalink": nodes,
+		"started_at": client.started_at,
+	}
+
+
+@tasks.loop(seconds=BOT_STATUS_INTERVAL_SECONDS)
+async def report_bot_status() -> None:
+	"""稼働状況を定期的にダッシュボード向けへ記録する"""
+	await telemetry.update_bot_status(_build_bot_status())
+
+
+@tasks.loop(minutes=GUILD_SYNC_INTERVAL_MINUTES)
+async def refresh_guilds() -> None:
+	"""サーバー一覧 (人数など) を定期的に再同期する"""
+	await telemetry.sync_guilds([_guild_info(guild) for guild in client.guilds])
 
 
 # 定期的に生存確認
@@ -190,6 +265,18 @@ async def on_application_command_completion(ctx: discord.ApplicationContext) -> 
 			ctx.user.id,
 		)
 
+	# ダッシュボード向けにコマンド実行ログを記録する
+	await telemetry.record_command(
+		telemetry.CommandRecord(
+			command=full_command_name,
+			guild_id=ctx.guild_id,
+			guild_name=ctx.guild.name if ctx.guild is not None else None,
+			channel_id=ctx.channel_id,
+			user_id=ctx.user.id,
+			options=[json.dumps(option, ensure_ascii=False) for option in ctx.selected_options or []],
+		)
+	)
+
 
 # アプリケーションコマンドエラー時のイベント
 @client.event
@@ -223,14 +310,30 @@ async def on_application_command_error(
 	logger.error("アプリケーションコマンド実行エラー: %s", full_command_name)
 	logger.error(ex)
 
+	def build_record(error_type: str, error_code: str | None = None) -> telemetry.CommandRecord:
+		"""失敗したコマンドの記録を生成する"""
+		return telemetry.CommandRecord(
+			command=full_command_name,
+			ok=False,
+			guild_id=ctx.guild_id,
+			guild_name=gn,
+			channel_id=ctx.channel_id,
+			user_id=ctx.user.id,
+			options=[json.dumps(option, ensure_ascii=False) for option in ctx.selected_options or []],
+			error_type=error_type,
+			error_code=error_code,
+		)
+
 	# クールダウン
 	if isinstance(ex, commands.CommandOnCooldown):
+		await telemetry.record_command(build_record("cooldown"))
 		await ctx.respond(
 			embed=EmbedsTemplates.warning(description=t("cmdmsg.cooldown_warning", int(ex.retry_after))),
 			ephemeral=True,
 		)
 	# 実行者がオーナーではない
 	elif isinstance(ex, commands.NotOwner):
+		await telemetry.record_command(build_record("not_owner"))
 		await ctx.respond(embed=EmbedsTemplates.error(description=t("cmdmsg.not_owner")), ephemeral=True)
 	# その他
 	else:
@@ -242,25 +345,23 @@ async def on_application_command_error(
 		tb_text = "".join(tb_strings)
 
 		# 内部エラーを報告してメッセージを送信する
-		await ctx.respond(
-			embed=EmbedsTemplates.internal_error(
-				error_code=await DebugLogger.report_internal_error(
-					"<Exception>\n" + str(original_ex) + "\n\n<Traceback>\n" + tb_text,
-					description=(
-						"<Application Command Error>\n"
-						f"- {'DM' if gn is None else f'Guild: {gn} (`{ctx.guild_id}`)'}\n"
-						f"- User: {ctx.user} (`{ctx.user.id}`)\n"
-						f"- Command: `{full_command_name}`\n"
-						"  - Options\n"
-						+ (
-							"\n".join(["    - `" + json.dumps(o) + "`" for o in ctx.selected_options])
-							if ctx.selected_options
-							else "    - None"
-						)
-					),
-				),
-			)
+		error_code = await DebugLogger.report_internal_error(
+			"<Exception>\n" + str(original_ex) + "\n\n<Traceback>\n" + tb_text,
+			description=(
+				"<Application Command Error>\n"
+				f"- {'DM' if gn is None else f'Guild: {gn} (`{ctx.guild_id}`)'}\n"
+				f"- User: {ctx.user} (`{ctx.user.id}`)\n"
+				f"- Command: `{full_command_name}`\n"
+				"  - Options\n"
+				+ ("\n".join(["    - `" + json.dumps(o) + "`" for o in ctx.selected_options]) if ctx.selected_options else "    - None")
+			),
+			source=full_command_name,
+			guild_id=ctx.guild_id,
+			user_id=ctx.user.id,
+			command=full_command_name,
 		)
+		await telemetry.record_command(build_record("internal", error_code))
+		await ctx.respond(embed=EmbedsTemplates.internal_error(error_code=error_code))
 
 
 # 接続確立時 (SonoLink のノード接続は on_ready ではなく on_connect で行う)
@@ -301,6 +402,10 @@ async def on_ready() -> None:
 		logger.error("内部エラー報告機能の初期化に失敗")
 		logger.error(traceback.format_exc())
 
+	# ダッシュボード向けテレメトリの初期化
+	await telemetry.ensure_indexes()
+	await telemetry.sync_guilds([_guild_info(guild) for guild in client.guilds])
+
 	# ステータス表示を更新
 	await client.change_presence(
 		activity=discord.Game(name=f"/play | v{App.VERSION_STRING}"),
@@ -319,6 +424,24 @@ async def on_ready() -> None:
 
 	# Lavalink 接続監視ループ開始
 	check_lavalink_nodes.start()
+
+	# ダッシュボード向けの稼働状況記録・サーバー一覧同期を開始
+	if not report_bot_status.is_running():
+		report_bot_status.start()
+	if not refresh_guilds.is_running():
+		refresh_guilds.start()
+
+
+# サーバー参加時
+@client.listen()
+async def on_guild_join(guild: discord.Guild) -> None:
+	await telemetry.upsert_guild(_guild_info(guild))
+
+
+# サーバー退出時
+@client.listen()
+async def on_guild_remove(guild: discord.Guild) -> None:
+	await telemetry.remove_guild(guild.id)
 
 
 def run() -> None:

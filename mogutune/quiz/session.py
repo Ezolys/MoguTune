@@ -17,7 +17,7 @@ from mogutune_core.roster import RemoveReason, Roster
 from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 
-from mogutune import leaderboard, normalizer
+from mogutune import leaderboard, normalizer, telemetry
 from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
@@ -82,6 +82,12 @@ class QuizSession:
 	"""参加者 (プレイヤー一覧・参加待ちキュー・主催者) の管理"""
 	playing: bool = False
 	"""クイズが開始されているかどうか"""
+	guild: discord.Guild | None = None
+	"""クイズが実行されているサーバー (play() で設定される)"""
+	voice_channel: discord.VoiceChannel | None = None
+	"""クイズが実行されているボイスチャンネル (play() で設定される)"""
+	started_at: datetime.datetime | None = None
+	"""クイズの開始時刻"""
 
 	rng: random.Random = field(default_factory=random.Random)
 	"""乱数生成器 (core へ注入する)"""
@@ -564,6 +570,7 @@ class QuizSession:
 		self.next_cleanup_messages = []
 		self.q_msg = None
 		self.owner = None
+		self.started_at = None
 		self.roster.owner_id = None
 		self.expect_user_next = False
 		self.restore_track_after_sfx = True
@@ -681,6 +688,22 @@ class QuizSession:
 		"""トラックのYouTube URLを解決する (本体は track_adapter.resolve_youtube_url に移動)"""
 		return await resolve_youtube_url(track)
 
+	def status_snapshot(self) -> dict:
+		"""ダッシュボード表示用のセッション状態を返す"""
+		return {
+			"guild_id": self.guild_id,
+			"guild_name": self.guild.name if self.guild is not None else None,
+			"channel_id": self.channel_id,
+			"voice_channel_name": self.voice_channel.name if isinstance(self.voice_channel, discord.VoiceChannel) else None,
+			"owner_id": self.owner.id if self.owner is not None else None,
+			"query": self.query,
+			"question_index": self.current_q_number,
+			"question_total": self.q_tracks_count,
+			"participants": len(self.roster.players),
+			"phase": "preparing" if not self.playing else ("answering" if self.can_answered else "playing"),
+			"started_at": self.started_at,
+		}
+
 	async def end(self) -> None:
 		"""クイズを終了する"""
 		self.playing = False
@@ -704,6 +727,7 @@ class QuizSession:
 		try:
 			self.playing = True
 			self.reset()
+			self.started_at = datetime.datetime.now(tz=datetime.UTC)
 
 			self.guild = client.get_guild(self.guild_id)  # fetch
 			if self.guild is None:
@@ -1025,6 +1049,31 @@ class QuizSession:
 				logger.error("- リーダーボード記録エラー")
 				logger.error(traceback.format_exc())
 				await DebugLogger.report_internal_error(traceback.format_exc())
+
+			# クイズ履歴を記録する (ダッシュボード用。失敗しても終了処理は継続する)
+			try:
+				correct_counts: dict[int, int] = {}
+				for player_id in self.q_results.values():
+					if player_id is not None:
+						correct_counts[player_id] = correct_counts.get(player_id, 0) + 1
+				await telemetry.record_quiz_history(
+					telemetry.QuizHistory(
+						guild_id=self.guild_id,
+						guild_name=self.guild.name if self.guild is not None else None,
+						channel_id=self.channel_id,
+						voice_channel_name=self.voice_channel.name if isinstance(self.voice_channel, discord.VoiceChannel) else None,
+						owner_id=self.owner.id if self.owner is not None else None,
+						query=self.query,
+						question_total=self.q_tracks_count,
+						completed_questions=len(self.q_results),
+						participants=sorted(self.participant_questions),
+						correct_counts=correct_counts,
+						started_at=self.started_at,
+						ended_at=datetime.datetime.now(tz=datetime.UTC),
+					)
+				)
+			except Exception:
+				logger.exception("- クイズ履歴記録エラー")
 
 			logger.debug("クイズ終了")
 			# 終了

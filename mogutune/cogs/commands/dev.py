@@ -3,7 +3,9 @@ import logging
 import discord
 import sonolink
 from discord.ext import commands
+from pycord.localizer import t
 
+from mogutune import maintenance
 from mogutune.client import client
 from mogutune.embeds import EmbedsTemplates
 
@@ -104,6 +106,19 @@ class DevCommands(discord.Cog):
 			embeds.append(await build_node_embed(label, node))
 
 		await ctx.followup.send(embeds=embeds, ephemeral=True)
+
+	@commands.slash_command()
+	@commands.is_owner()
+	async def maintenance(
+		self,
+		ctx: discord.ApplicationContext,
+		enabled: discord.Option(bool, required=True),  # pyright: ignore[reportInvalidTypeForm]
+		message: discord.Option(str, required=False, max_length=500),  # pyright: ignore[reportInvalidTypeForm]
+	) -> None:
+		"""メンテナンスモードを切り替える (クイズの開始を停止する)"""
+		await maintenance.set_state(enabled=enabled, updated_by=f"discord:{ctx.user.id}", message=message)
+		state_text = t("cmd.maintenance.on") if enabled else t("cmd.maintenance.off")
+		await ctx.respond(embed=EmbedsTemplates.success(description=t("cmd.maintenance.updated", state_text)), ephemeral=True)
 
 
 def setup(bot: discord.Bot) -> None:
