@@ -281,67 +281,6 @@ docker compose -f compose.lavalink.yml up -d --build
 Lavalink のポート (デフォルト: `2333`) には Bot サーバーから接続できるようにし、外部からは接続できないようにファイアウォール等で制限してください。
 
 
-### 管理ダッシュボード
-
-Bot の稼働状況・コマンド実行ログ・クイズの実行状況・内部エラーを Web から閲覧でき、メンテナンスモードを切り替えられるダッシュボードです (`dashboard/`)。Bot とは独立したコンテナとして動作し、MongoDB を介してデータを共有します。
-
-認証は Cloudflare Access (Zero Trust) に任せ、オリジン側でも `Cf-Access-Jwt-Assertion` ヘッダを検証するため、Access を迂回した直接アクセスは拒否されます。
-
-#### セットアップ
-
-1. Cloudflare Zero Trust で Access アプリケーションを作成し、許可するメールアドレスなどのポリシーを設定します。アプリケーションの **AUD タグ (Application Audience)** を控えます。
-2. 既存トンネル (cloudflared) の ingress にダッシュボードのホスト名を追加します。
-
-   ```yaml
-   ingress:
-     - hostname: mogutune-dashboard.example.com
-       service: http://localhost:8787
-   ```
-
-3. `.env` に `CF_ACCESS_TEAM_DOMAIN` (例: `https://myteam.cloudflareaccess.com`) と `CF_ACCESS_AUD` を設定します。
-4. 起動します。
-
-   ```bash
-   docker compose -f compose.dashboard.yml up -d --build
-   ```
-
-ダッシュボードは `127.0.0.1:8787` にのみ公開されるため、cloudflared と同じホストで動かしてください。別サーバーで動かす場合は `compose.dashboard.yml` の `ports` とトンネルの ingress を環境に合わせて変更します (DB_URI は Bot と同じ接続先を指定)。
-
-> `DASHBOARD_AUTH_DISABLED=true` は認証を完全にスキップする開発用の設定です。本番では絶対に有効にしないでください。
-
-#### ローカルで開発する
-
-```bash
-# サーバー (認証を無効化して起動)
-cd dashboard/server
-DB_URI="mongodb://..." DASHBOARD_AUTH_DISABLED=true uv run uvicorn mogutune_dashboard.main:app --port 8787
-
-# クライアント (http://localhost:5173 で起動し、/api をサーバーへプロキシ)
-cd dashboard/client
-npm install
-npm run dev
-```
-
-#### 記録されるデータ
-
-Bot が以下のコレクションへ記録し、ダッシュボードが参照します。
-
-| コレクション | 内容 | 保持期間 |
-| --- | --- | --- |
-| `command_logs` | コマンド実行者・サーバー・オプション・成否・エラー種別 | 90日 (TTL) |
-| `internal_errors` | エラーコード (UUID7)・発生元・トレースバック・正規化ハッシュ | 180日 (TTL) |
-| `bot_status` | 稼働状況のハートビート (30秒間隔)。サーバー数・レイテンシ・実行中クイズ・Lavalink 状態 | 最新のみ |
-| `guilds` | 参加サーバー一覧 (名前・人数・参加日) | - |
-| `quiz_history` | クイズ1回分の履歴 (参加者・問題数・正解数) | - |
-| `bot_state` | メンテナンスモードの状態 | - |
-
-#### メンテナンスモード
-
-- ダッシュボードまたは Bot の `/maintenance` コマンド (オーナー専用) で切り替えられます。
-- 有効中は `/play` (コンテキストメニュー含む) がクイズを開始せず、メッセージを返します。実行中のクイズは継続され `/end` で終了できます。
-- 設定は MongoDB に保存されるため Bot を再起動しても維持されます。
-
-
 ### ローカルで実行する (開発者向け)
 
 Docker を使わずに直接実行することもできます。
@@ -394,11 +333,6 @@ Docker を使わずに直接実行することもできます。
 | `SERVER_ADDRESS` / `SERVER_PORT` / `LAVALINK_SERVER_PASSWORD` | 任意 | Lavalink サーバー本体の設定 (`LAVALINK_*` 側と合わせる) |
 | `UPTIME_KUMA_PUSH_URL` | 任意 | 設定すると [Uptime Kuma](https://github.com/louislam/uptime-kuma) へ死活監視の heartbeat を送信 |
 | `DEBUG` / `DEBUG_GUILD_ID` / `DEBUG_LOG_GUILD_ID` / `DEBUG_LOG_TEXT_CHANNEL_ID` | 任意 | 開発・デバッグ用の設定 |
-| `DASHBOARD_PORT` | 任意 | ダッシュボードの公開ポート (デフォルト: `8787`。`127.0.0.1` のみに公開) |
-| `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | ダッシュボード利用時は必須 | Cloudflare Access のチームドメインと AUD タグ |
-| `DASHBOARD_ALLOWED_EMAILS` | 任意 | 追加のメールアドレス許可リスト (カンマ区切り) |
-| `DASHBOARD_TIMEZONE` | 任意 | 集計に使うタイムゾーン (デフォルト: `Asia/Tokyo`) |
-| `DASHBOARD_AUTH_DISABLED` | 任意 | 開発用に認証を無効化 (本番では使用しない) |
 
 
 ### 効果音
