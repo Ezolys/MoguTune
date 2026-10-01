@@ -38,9 +38,9 @@ export function Led({ tone = "slate", blink = false }: { tone?: Tone; blink?: bo
 /** 再生中を示すイコライザーバー */
 export function EqualizerBars({ className = "" }: { className?: string }) {
 	return (
-		<span aria-hidden className={`flex h-3 items-end gap-[2px] ${className}`}>
+		<span aria-hidden className={`flex h-2.5 w-[18px] shrink-0 items-end gap-[2px] ${className}`}>
 			{[0, 1, 2, 3].map((index) => (
-				<span key={index} className="eq-bar h-full w-[3px] flex-1 bg-accent" style={{ animationDelay: `${index * 0.18}s` }} />
+				<span key={index} className="eq-bar h-full w-[3px] bg-accent" style={{ animationDelay: `${index * 0.18}s` }} />
 			))}
 		</span>
 	);
@@ -53,11 +53,15 @@ export function SegmentMeter({ total, current, className = "" }: { total: number
 		return null;
 	}
 	return (
-		<div role="img" aria-label={`問題 ${current} / ${total}`} className={`flex items-end gap-[3px] ${className}`}>
+		<div
+			role="img"
+			aria-label={`問題 ${current} / ${total}`}
+			className={`flex items-center gap-[2px] overflow-hidden ${className}`}
+		>
 			{Array.from({ length: count }, (_, index) => {
 				const position = index + 1;
 				const style = position < current ? "bg-primary" : position === current ? "led-blink bg-accent" : "bg-base-300";
-				return <span key={position} className={`h-3.5 flex-1 rounded-[2px] ${style}`} />;
+				return <span key={position} className={`h-1.5 min-w-0 flex-1 rounded-[2px] ${style}`} />;
 			})}
 		</div>
 	);

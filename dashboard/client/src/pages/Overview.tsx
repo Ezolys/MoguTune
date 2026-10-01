@@ -50,6 +50,7 @@ export function Overview() {
 
 					<Panel
 						title="LIVE CHANNELS"
+						bodyClassName="p-3 sm:p-4"
 						action={
 							status.active_sessions.length > 0 ? (
 								<span className="flex items-center gap-2">
@@ -62,7 +63,7 @@ export function Overview() {
 						{status.active_sessions.length === 0 ? (
 							<EmptyState title="実行中のクイズはありません" hint="/play でクイズが始まると、ここにリアルタイムで表示されます" />
 						) : (
-							<div className="grid gap-3 xl:grid-cols-2">
+							<div className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
 								{status.active_sessions.map((session) => (
 									<SessionStrip key={session.guild_id} session={session} />
 								))}

@@ -25,7 +25,11 @@ export function Quiz() {
 		<>
 			<PageHeader title="クイズ" description="実行中のセッションと実施履歴" />
 
-			<Panel title="LIVE CHANNELS" action={<span className="font-mono text-[10px] tracking-[0.2em] text-base-content/40">{sessions.length} ACTIVE</span>}>
+			<Panel
+				title="LIVE CHANNELS"
+				bodyClassName="p-3 sm:p-4"
+				action={<span className="font-mono text-[10px] tracking-[0.2em] text-base-content/40">{sessions.length} ACTIVE</span>}
+			>
 				{activeQuery.isLoading ? (
 					<Loading />
 				) : activeQuery.error ? (
@@ -33,7 +37,7 @@ export function Quiz() {
 				) : sessions.length === 0 ? (
 					<EmptyState title="実行中のクイズはありません" hint="/play でクイズが始まると、ここにリアルタイムで表示されます" />
 				) : (
-					<div className="grid gap-3 xl:grid-cols-2">
+					<div className="grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3">
 						{sessions.map((session) => (
 							<SessionStrip key={session.guild_id} session={session} />
 						))}
