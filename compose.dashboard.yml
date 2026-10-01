@@ -1,0 +1,29 @@
+# 管理ダッシュボード用 (Bot / Lavalink とは独立して起動できる)
+# 起動: docker compose -f compose.dashboard.yml up -d --build
+#
+# 事前に Cloudflare Zero Trust で Access アプリケーションを作成し、
+# 既存トンネル (cloudflared) の ingress からこのダッシュボードへルーティングしてください。
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    restart: unless-stopped
+    ports:
+      # cloudflared と同じホストで動かす想定。外部へ直接公開しない
+      - "127.0.0.1:${DASHBOARD_PORT:-8787}:8787"
+    environment:
+      # MongoDB (Bot と同じ接続先) [Required]
+      DB_URI: ${DB_URI:?error}
+      DB_NAME: ${DB_NAME:-mogutune}
+
+      # Cloudflare Access [Required]
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:?error}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:?error}
+
+      # 追加の許可リスト・CSRF・表示設定 [Option]
+      DASHBOARD_ALLOWED_EMAILS: ${DASHBOARD_ALLOWED_EMAILS:-}
+      DASHBOARD_ALLOWED_ORIGINS: ${DASHBOARD_ALLOWED_ORIGINS:-}
+      DASHBOARD_TIMEZONE: ${DASHBOARD_TIMEZONE:-Asia/Tokyo}
+      # 本番では絶対に true にしないこと (認証を完全にスキップする)
+      DASHBOARD_AUTH_DISABLED: ${DASHBOARD_AUTH_DISABLED:-false}

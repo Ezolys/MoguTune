@@ -14,6 +14,10 @@ wheels/
 .pytest_cache/
 .ruff_cache/
 
+# Node
+node_modules/
+*.tsbuildinfo
+
 .env
 
 # SFX audio files (host-placed, mounted into Lavalink)
@@ -23,5 +27,6 @@ wheels/
 
 # Local dev / not for public
 mogutune/activity/
-tests/
+/tests/
 .opencode/
+.openchamber/

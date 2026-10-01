@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+	themes: false;
+}
+
+/* スタジオ計器盤テーマ (ダーク固定) */
+@plugin "daisyui/theme" {
+	name: "mogutune";
+	default: true;
+	prefersdark: true;
+	color-scheme: dark;
+
+	--color-base-100: #12141a;
+	--color-base-200: #1a1d25;
+	--color-base-300: #262a35;
+	--color-base-content: #e9ebf2;
+
+	--color-primary: #5b9bd5;
+	--color-primary-content: #0b1520;
+
+	--color-secondary: #8cb05b;
+	--color-secondary-content: #101a08;
+
+	--color-accent: #ffc94d;
+	--color-accent-content: #241a05;
+
+	--color-neutral: #262a35;
+	--color-neutral-content: #cbd2e0;
+
+	--color-info: #6fa8dc;
+	--color-info-content: #08131f;
+
+	--color-success: #8cb05b;
+	--color-success-content: #101a08;
+
+	--color-warning: #ffc94d;
+	--color-warning-content: #241a05;
+
+	--color-error: #dd2e44;
+	--color-error-content: #fff1f2;
+
+	--radius-selector: 0.25rem;
+	--radius-field: 0.375rem;
+	--radius-box: 0.5rem;
+
+	--size-selector: 0.25rem;
+	--size-field: 0.25rem;
+
+	--border: 1px;
+	--depth: 0;
+	--noise: 0;
+}
+
+@theme {
+	--font-display: "LINE Seed JP", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+	--font-sans: "LINE Seed JP", "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+	@apply bg-base-100 font-sans text-base-content antialiased;
+}
+
+/* サイドバーのアクティブ項目 (DaisyUI 既定の明るい背景を上書き) */
+.menu :where(li > a.nav-active) {
+	background-color: color-mix(in oklab, var(--color-primary) 14%, transparent);
+	color: var(--color-primary);
+}
+
+/* 計器の LED: 点滅 (現在の問題位置・ライブ表示) */
+@keyframes led-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}
+
+.led-blink {
+	animation: led-blink 1.2s steps(2, end) infinite;
+}
+
+/* イコライザーバー (再生中のライブ表示) */
+@keyframes eq-bounce {
+	0%,
+	100% {
+		transform: scaleY(0.25);
+	}
+	50% {
+		transform: scaleY(1);
+	}
+}
+
+.eq-bar {
+	transform-origin: bottom;
+	animation: eq-bounce 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.led-blink,
+	.eq-bar {
+		animation: none;
+	}
+
+	.eq-bar {
+		transform: scaleY(0.6);
+	}
+}
+
+/* スクロールバーを機器パネルに合わせて細くする */
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	@apply rounded-full bg-base-300;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-neutral);
+}

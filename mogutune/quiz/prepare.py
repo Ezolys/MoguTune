@@ -10,6 +10,7 @@ from pycord.localizer import t
 from sonolink.models import Playable as SonoPlayable
 from sonolink.models import Playlist as SonoPlaylist
 
+from mogutune import maintenance
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.discord_io import safe_edit, safe_send
@@ -50,6 +51,16 @@ async def prepare_play(  # noqa: C901, PLR0911, PLR0912, PLR0915
 		# プレイリストのURLとプリセットどちらも指定されていない場合はエラーメッセージを返す
 		if query == "":
 			await inter.respond(embed=EmbedsTemplates.error(description=t("cmd.play.no_query")), ephemeral=True)
+			return
+
+		# メンテナンスモード中はクイズを開始できない (ダッシュボードから切り替え可能)
+		maintenance_state = await maintenance.fetch_state()
+		if maintenance_state["enabled"]:
+			description = maintenance_state.get("message") or t("cmd.start.maintenance_mode")
+			if isinstance(inter, discord.Message):
+				await inter.reply(embed=EmbedsTemplates.warning(description=description))
+			else:
+				await inter.respond(embed=EmbedsTemplates.warning(description=description), ephemeral=True)
 			return
 
 		if isinstance(inter, discord.Message):
