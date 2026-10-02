@@ -310,12 +310,12 @@ class QuizSession:
 
 	@staticmethod
 	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
-		"""表示用の楽曲タイトルを返す"""
+		"""表示用の楽曲タイトルを返す (YouTube は動画タイトルに作者名が含まれることが多いため作者名を付けない)"""
 		if track is None:
 			return "Unknown"
 
-		title = track.title if track.source_name == "youtube" else track.title
-		if with_author and track.author is not None:
+		title = track.title
+		if with_author and track.author is not None and track.source_name != "youtube":
 			title += f" - {track.author}"
 		if max_length is not None and len(title) > max_length:
 			return title[:max_length] + "..."
