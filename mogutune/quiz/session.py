@@ -376,7 +376,11 @@ class QuizSession:
 			else:
 				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, player_id)
 				who = member.mention if member is not None else str(player_id)
-			lines.append(t("msg.q.end.questions.line", number, title, who))
+			uri = track.uri
+			if uri is not None and uri.startswith(("http://", "https://")):
+				lines.append(t("msg.q.end.questions.line_link", number, title, uri, who))
+			else:
+				lines.append(t("msg.q.end.questions.line", number, title, who))
 		return lines
 
 	def _end_embeds(self, ranking_text: str, question_lines: list[str]) -> list[discord.Embed]:
