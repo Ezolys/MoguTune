@@ -12,8 +12,6 @@
 - ライセンス: Apache License, Version 2.0
 - 著作権: Copyright Google LLC
 
-上流リポジトリには NOTICE ファイルが存在しないため、追加の帰属表示は不要です。
-
 Apache License 2.0 は商標権を許諾するものではありません。Material Design および Google は Google LLC の商標です。
 本プロジェクトは Google による承認・提供・後援を受けたものではありません。
 
