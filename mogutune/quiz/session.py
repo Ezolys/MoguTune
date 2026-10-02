@@ -113,6 +113,8 @@ class QuizSession:
 	"""問題のトラック数"""
 	current_q_track: SonoPlayable | None = None
 	"""現在出題しようとしているトラック"""
+	answer_target_track: SonoPlayable | None = None
+	"""解答ウィンドウで判定対象となるトラック (受理時に捕獲する。再生終了イベントで player.current が None になっても判定を維持する)"""
 	is_skipping_current_q_by_exception: bool = False
 	"""現在の問題を再生例外によってスキップ中かどうか"""
 
@@ -250,11 +252,14 @@ class QuizSession:
 			return []
 		if self.pl is None:
 			return []
-		if self.pl.current is None:
+
+		# 解答対象は受理時に捕獲したトラックを優先する (再生終了イベントで player.current が None になっても選択肢を生成できるように)
+		target = self.answer_target_track if self.answer_target_track is not None else self.pl.current
+		if target is None:
 			return []
 
 		# 正解の曲を除いてダミーの選択肢を4つサンプリングし、正解を足してシャッフルする
-		choices = answers.generate_choices(to_core_track(self.pl.current), to_core_tracks(self.q_original_tracks), self.rng)
+		choices = answers.generate_choices(to_core_track(target), to_core_tracks(self.q_original_tracks), self.rng)
 		# core.Track を URI で元の SonoPlayable へ引き戻す
 		return to_sono_tracks(choices, self.q_original_tracks)
 
@@ -562,6 +567,7 @@ class QuizSession:
 		self.q_tracks = []
 		self.q_tracks_count = 0
 		self.clear_current_q_track_state()
+		self.answer_target_track = None
 		self.current_q_number = 0
 		self.q_start_time = None
 		self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
@@ -935,6 +941,7 @@ class QuizSession:
 
 				self.current_q_number = i
 				self.current_q_track = q
+				self.answer_target_track = None
 				self.is_skipping_current_q_by_exception = False
 
 				# 参加待ちのプレイヤーを参加させる
@@ -1105,9 +1112,12 @@ class QuizSession:
 			)
 			return
 
+		# 解答対象のトラックを受理判定の前に捕獲する (以降の await 中に player.current が None になっても判定を維持する)
+		current_track = self.pl.current
+
 		# 早押しの受理判定 (core)
 		answer_state = answers.AnswerState()
-		answer_state.current_track_uri = self.pl.current.uri if self.pl.current is not None else None
+		answer_state.current_track_uri = current_track.uri if current_track is not None else None
 		answer_state.answering_player_id = self.answering_player.id if self.answering_player is not None else None
 		answer_state.can_answer = self.can_answered
 		answer_state.question_started_at = self.q_start_time
@@ -1172,6 +1182,8 @@ class QuizSession:
 		# 解答中プレイヤーを設定
 		pl = result
 		self.answering_player = pl
+		# 解答対象トラックを確定する
+		self.answer_target_track = current_track
 
 		# 解答中のプレイヤー名を取得
 		mb = await self.guild.get_or_fetch(discord.Member, self.answering_player.id)
@@ -1203,6 +1215,14 @@ class QuizSession:
 			)
 		)
 
+		# SFX (解答受付音) を先に再生する。SFX の終了処理 (sonolink の stop → 問題曲の復帰) が完了してから
+		# 選択肢メニューを出すことで、選択操作と player.current が None になる瞬間が重ならないようにする
+		await self.play_sfx(SFX.A)
+
+		# SFX 再生中にクイズが終了した場合は選択肢を出さない
+		if not self.playing:
+			return
+
 		# 解答の選択肢セレクターを送信する
 		settings = await guild_settings_manager.get(self.guild_id)
 		select_msg = await interaction.followup.send(
@@ -1211,9 +1231,6 @@ class QuizSession:
 			ephemeral=True,
 			wait=True,
 		)
-
-		# SFX
-		await self.play_sfx(SFX.A)
 
 		try:
 			# ユーザーが解答するまで最大5秒待機
@@ -1249,15 +1266,30 @@ class QuizSession:
 						await asyncio.wait_for(self.SFX_FINISHED.wait(), timeout=10)
 					except TimeoutError:
 						logger.warning("SFX の終了待機がタイムアウトしました")
-				# 再生再開
-				logger.debug("- 再生再開")
-				# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
-				if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
-					resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
+				# 解答ウィンドウ中に出題トラックが終了した場合は復帰できないため、タイムアップ処理へ移す
+				if self.pl.current is None:
+					# クイズ終了済みの場合は何もしない (再生やタイムアップ処理を行わない)
+					if self.playing:
+						logger.debug("- 出題トラック終了済み: タイムアップ処理へ")
+						target = self.answer_target_track if self.answer_target_track is not None else self.current_q_track
+						if target is None:
+							self.NEXT.set()
+						else:
+							try:
+								await self.reveal_answer_on_timeout(target)
+							except Exception:
+								logger.exception("タイムアップ処理に失敗しました")
+								self.NEXT.set()
 				else:
-					resume_position = 0
-				await self.pl.seek(resume_position)
-				await self.pl.resume()
+					# 再生再開
+					logger.debug("- 再生再開")
+					# 回答開始時の再生位置から3秒戻して再生する (回答開始時の再生位置が4秒未満の場合は最初から再生する)
+					if self.answer_pause_position >= self.RESUME_SEEK_MIN_POSITION_MS:
+						resume_position = self.answer_pause_position - self.RESUME_SEEK_BACK_MS
+					else:
+						resume_position = 0
+					await self.pl.seek(resume_position)
+					await self.pl.resume()
 
 		# 解答中メッセージを問題表示に戻す (正解時は正解 embed と次ボタンを維持する)
 		if self.can_answered:
@@ -1273,9 +1305,13 @@ class QuizSession:
 		if self.pl is None:
 			await DebugLogger.report_internal_error("Session.player is None")
 			return None
-		if self.pl.current is None:
-			await DebugLogger.report_internal_error("Session.player.current is None")
+
+		# 解答対象は受理時に捕獲したトラックを使う (再生終了イベントで player.current が None になっても判定できるように)
+		target = self.answer_target_track if self.answer_target_track is not None else self.pl.current
+		if target is None:
+			logger.warning("解答対象のトラックが見つかりません: %s", user_id)
 			return None
+
 		if not self.roster.is_joined(user_id):
 			await DebugLogger.report_internal_error("User is not in players")
 			return None
@@ -1289,11 +1325,11 @@ class QuizSession:
 			self.ANSWERED.set()
 			return None
 
-		if answers.is_correct(answer, self.pl.current.uri):
+		if answers.is_correct(answer, target.uri):
 			logger.debug("- 正解")
 			# 解答ができない状態にする
 			self.can_answered = False
-			correct_track = self.pl.current
+			correct_track = target
 			# 正解
 			player.correct()
 			# 問題ごとの正解者を記録する (正解は1問につき1人)

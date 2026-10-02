@@ -21,7 +21,11 @@ dev = [
 ]
 
 [tool.uv]
-exclude-newer = "1 week"
+exclude-newer = "1 day"
+
+[[tool.uv.index]]
+url = "https://pypi.flatt.tech/simple/"
+default = true
 
 [tool.uv.sources]
 mogutune-core = { path = "core", editable = true }

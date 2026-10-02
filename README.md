@@ -381,4 +381,6 @@ Spotify などの直接オーディオを取得することができないプラ
 
 [MIT License](LICENSE)
 
+サードパーティーライセンスは [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) を参照してください。
+
 Copyright (C) 2026 Milkeyyy
