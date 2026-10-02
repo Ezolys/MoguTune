@@ -141,24 +141,49 @@ class GeneralCommands(discord.Cog):
 				icon="🏆",
 			)
 
-			# 実行者自身の順位をフッターへ表示する
-			rank, my_entry = await leaderboard.fetch_rank(ctx.guild_id, ctx.user.id)
-			if my_entry is None:
-				embed.set_footer(text=t("cmd.leaderboard.result.no_record"))
-			else:
-				embed.set_footer(
-					text=t(
-						"cmd.leaderboard.result.you",
-						rank,
-						my_entry.correct,
-						f"{leaderboard.accuracy_percent(my_entry.correct, my_entry.questions):.1f}",
-					)
-				)
 			await ctx.respond(embed=embed)
 		except Exception:
 			logger.error(traceback.format_exc())
 			await ctx.respond(
 				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc()))
+			)
+
+	@commands.slash_command()
+	@discord.guild_only()
+	@discord.default_permissions(send_messages=True)
+	@commands.cooldown(2, 5)
+	async def stats(self, ctx: discord.ApplicationContext) -> None:
+		"""あなたのクイズ統計を表示する"""
+		assert ctx.guild_id is not None  # noqa: S101
+		try:
+			rank, entry = await leaderboard.fetch_rank(ctx.guild_id, ctx.user.id)
+			if entry is None:
+				await ctx.respond(
+					embed=EmbedsTemplates.info(
+						title=t("cmd.stats.result.title"),
+						description=t("cmd.stats.result.no_record"),
+						icon="📊",
+					),
+					ephemeral=True,
+				)
+				return
+
+			embed = EmbedsTemplates.info(title=t("cmd.stats.result.title"), icon="📊")
+			embed.add_field(name=t("cmd.stats.result.rank"), value=t("cmd.stats.result.rank_value", rank), inline=True)
+			embed.add_field(name=t("cmd.stats.result.correct"), value=f"`{entry.correct}`", inline=True)
+			embed.add_field(name=t("cmd.stats.result.questions"), value=f"`{entry.questions}`", inline=True)
+			embed.add_field(
+				name=t("cmd.stats.result.accuracy"),
+				value=f"`{leaderboard.accuracy_percent(entry.correct, entry.questions):.1f}%`",
+				inline=True,
+			)
+			embed.add_field(name=t("cmd.stats.result.quizzes"), value=f"`{entry.quizzes}`", inline=True)
+			await ctx.respond(embed=embed, ephemeral=True)
+		except Exception:
+			logger.error(traceback.format_exc())
+			await ctx.respond(
+				embed=EmbedsTemplates.internal_error(error_code=await DebugLogger.report_internal_error(traceback.format_exc())),
+				ephemeral=True,
 			)
 
 
