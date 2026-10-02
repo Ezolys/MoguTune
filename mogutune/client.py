@@ -83,6 +83,8 @@ class Bot(commands.Bot):
 				if not any(n.is_connected for n in self.sl_client.nodes):
 					raise RuntimeError("Lavalink ノードが接続されていません")
 				self.sl_started = True
+				connected = [n.id for n in self.sl_client.nodes if n.is_connected]
+				logger.info("Lavalink ノードへ接続しました: %s", ", ".join(connected))
 				break
 			except Exception as e:
 				logger.warning("Lavalink ノード接続失敗 [試行 %d/%d]: %s", attempt, max_attempts, e)
