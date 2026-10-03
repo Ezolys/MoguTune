@@ -54,6 +54,17 @@ def ready_threshold_met(votes: int, players: int, threshold: str) -> bool:
 	return votes > players * 0.5
 
 
+def _contains_custom_id(components: list[object], custom_id: str) -> bool:
+	"""コンポーネント一覧 (入れ子含む) に custom_id が含まれるかどうかを返す"""
+	for component in components:
+		if getattr(component, "custom_id", None) == custom_id:
+			return True
+		children = getattr(component, "children", None)
+		if children and _contains_custom_id(children, custom_id):
+			return True
+	return False
+
+
 @dataclass
 class QuizSession:
 	"""クイズのセッション"""
@@ -153,7 +164,16 @@ class QuizSession:
 	answer_pause_position: int = 0
 	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
 	expect_user_next: bool = False
-	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
+	"""解答確定後のリプレイ終了を次ボタン待ちにするかどうか"""
+	q_resolved: bool = False
+	"""現在の問題の解答が確定したかどうか (正解・スキップ・タイムアップなど)"""
+
+	NEXT_FALLBACK_SECONDS: int = 15
+	"""解答確定後のリプレイ終了から自動で次の問題へ進むまでの待ち時間 (秒)"""
+	next_fallback_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
+	"""リプレイ終了後の自動進行タスク"""
+	_verify_tasks: set[asyncio.Task] = field(default_factory=set, repr=False, compare=False)
+	"""q_msg の反映確認タスク (GC を防ぐため参照を保持する)"""
 
 	READY: asyncio.Event = field(default_factory=asyncio.Event)
 	"""準備完了待ちイベント"""
@@ -396,16 +416,64 @@ class QuizSession:
 			for page in paginate_lines(question_lines, budget)
 		]
 
-	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
+	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> discord.Message | None:
 		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
 		if self.q_msg is None:
-			return
+			return None
 		try:
-			await self.q_msg.edit(embed=embed, view=view)
+			return await self.q_msg.edit(embed=embed, view=view)
 		except discord.errors.NotFound:
-			pass
+			return None
 		except Exception:
 			logger.exception("q_msg の編集に失敗しました")
+			return None
+
+	async def edit_q_msg_with_next_button(self, embed: discord.Embed, *, user_id: int | None = None) -> None:
+		"""q_msg を次の問題へボタン付きで編集し、反映されたかを検証する"""
+		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
+
+		next_q_button = QuizNextQButtonView(self.guild_id, disabled=False)
+		message = await self._edit_q_msg(embed, view=next_q_button)
+		if message is None:
+			return
+		# セッションが既に終了している場合はボタンが生成されないため検証しない
+		button = getattr(next_q_button, "next_q_button", None)
+		if button is None:
+			return
+		# 編集が反映されたかをバックグラウンドで確認する (進行自体はボタン流用と自動進行で保証される)
+		task = asyncio.create_task(
+			self._verify_next_button(message, button.custom_id, self.current_q_number, user_id),
+			name=f"quiz-next-button-verify-{self.guild_id}",
+		)
+		# GC を防ぐためタスクの参照を保持する (完了時に破棄)
+		self._verify_tasks.add(task)
+		task.add_done_callback(self._verify_tasks.discard)
+
+	async def _verify_next_button(self, message: discord.Message, custom_id: str | None, q_number: int, user_id: int | None) -> None:
+		"""次の問題へボタンが q_msg に反映されたかを確認し、反映されていなければ内部エラーとして記録する"""
+		if custom_id is None:
+			return
+		try:
+			fetched = await message.channel.fetch_message(message.id)
+		except discord.errors.NotFound:
+			return
+		except Exception:
+			logger.exception("q_msg の反映確認に失敗しました")
+			return
+		if _contains_custom_id(fetched.components, custom_id):
+			return
+		logger.warning("次の問題へボタンが q_msg に反映されませんでした: guild=%s, message=%s", self.guild_id, message.id)
+		try:
+			await DebugLogger.report_internal_error(
+				"次の問題へボタンが q_msg に反映されませんでした。\n"
+				f"- Guild: {self.guild_id}\n- Question: {q_number}\n- Message: {message.id}",
+				description=f"次の問題へボタンの編集が反映されませんでした (問題 {q_number}, メッセージ {message.id})",
+				source="q_msg edit",
+				guild_id=self.guild_id,
+				user_id=user_id,
+			)
+		except Exception:
+			logger.exception("次の問題へボタンが反映されなかった事象の内部エラー報告に失敗しました")
 
 	def _get_text_channel(self) -> discord.abc.Messageable | None:
 		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
@@ -476,6 +544,7 @@ class QuizSession:
 
 		self.is_skipping_current_q_by_exception = True
 		self.can_answered = False
+		self.q_resolved = True
 		self.answering_player = None
 		self.q_results.setdefault(self.current_q_number, None)
 		self.refresh()
@@ -506,9 +575,9 @@ class QuizSession:
 
 	async def reveal_answer_on_timeout(self, track: SonoPlayable) -> None:
 		"""誰も正解しないまま再生が終わった際に正解情報を表示してサビから再生する (スキップと同様)"""
-		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
-
 		self.can_answered = False
+		self.q_resolved = True
+		self.expect_user_next = True
 		self.q_results.setdefault(self.current_q_number, None)
 		self.q_wait_seconds = 4
 
@@ -524,8 +593,7 @@ class QuizSession:
 		_embed = self.set_footer_track_info(_embed, track)
 
 		# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
-		next_q_button = QuizNextQButtonView(self.guild_id, disabled=False)
-		await self._edit_q_msg(_embed, view=next_q_button)
+		await self.edit_q_msg_with_next_button(_embed)
 
 		# ボタンが既に押されて進行要求済み (NEXT 設定済み) の場合はリプレイを再生しない
 		if self.NEXT.is_set():
@@ -574,6 +642,8 @@ class QuizSession:
 		self.started_at = None
 		self.roster.owner_id = None
 		self.expect_user_next = False
+		self.q_resolved = False
+		self.cancel_next_fallback()
 		self.restore_track_after_sfx = True
 		self.sfx_track_playing = None
 		self.answer_pause_position = 0
@@ -581,6 +651,52 @@ class QuizSession:
 		self.vote_progression = None
 		self.q_results = {}
 		self.participant_questions = {}
+
+	def cancel_next_fallback(self) -> None:
+		"""リプレイ終了後の自動進行タスクをキャンセルする"""
+		task = self.next_fallback_task
+		self.next_fallback_task = None
+		if task is not None and not task.done():
+			task.cancel()
+
+	async def advance_to_next(self) -> None:
+		"""次の問題へ進む (次ボタンと同じ動作。既に進行要求済みの場合は何もしない)"""
+		if self.NEXT.is_set():
+			return
+		self.cancel_next_fallback()
+		self.expect_user_next = False
+		try:
+			await self.pl.stop()
+		except Exception:
+			logger.exception("- 再生停止エラー")
+		self.NEXT.set()
+
+	def schedule_next_fallback(self) -> None:
+		"""リプレイ終了後に一定時間待って自動で次の問題へ進むタスクを開始する"""
+		if self.NEXT.is_set():
+			return
+		self.cancel_next_fallback()
+		self.next_fallback_task = asyncio.create_task(
+			self._next_fallback(self.current_q_number),
+			name=f"quiz-next-fallback-{self.guild_id}",
+		)
+
+	async def _next_fallback(self, q_number: int) -> None:
+		"""一定時間内に次へ進まなかった場合に自動で次の問題へ進む"""
+		timed_out = False
+		try:
+			await asyncio.wait_for(self.NEXT.wait(), timeout=self.NEXT_FALLBACK_SECONDS)
+		except TimeoutError:
+			timed_out = True
+		finally:
+			# 自分自身を保持から外す (advance_to_next からのキャンセルを防ぐ)
+			self.next_fallback_task = None
+		if not timed_out:
+			return
+		if not self.playing or self.current_q_number != q_number or self.NEXT.is_set():
+			return
+		logger.info("次の問題への自動進行を実行 (問題 %d, 待機 %d 秒)", q_number, self.NEXT_FALLBACK_SECONDS)
+		await self.advance_to_next()
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -938,6 +1054,7 @@ class QuizSession:
 				self.current_q_track = q
 				self.answer_target_track = None
 				self.is_skipping_current_q_by_exception = False
+				self.q_resolved = False
 
 				# 参加待ちのプレイヤーを参加させる
 				await self.join_queued_players()
@@ -951,6 +1068,7 @@ class QuizSession:
 
 				self.NEXT.clear()
 				self.expect_user_next = False
+				self.cancel_next_fallback()
 				# 前の問題の進行投票をリセットする
 				if self.vote_progression is not None:
 					self.vote_progression.reset()
@@ -1324,6 +1442,7 @@ class QuizSession:
 			logger.debug("- 正解")
 			# 解答ができない状態にする
 			self.can_answered = False
+			self.q_resolved = True
 			correct_track = target
 			# 正解
 			player.correct()

@@ -10,11 +10,73 @@ from mogutune.chorus import YTMostReplayedAPI
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
 from mogutune.quiz.manager import quiz_session_manager
-from mogutune.quiz.session import ready_threshold_met
+from mogutune.quiz.session import QuizSession, ready_threshold_met
 from mogutune.sfx import SFX
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+async def _try_advance_resolved(session: QuizSession, interaction: discord.Interaction) -> bool:  # noqa: PLR0911
+	"""解答が確定した問題で、残っている解答/スキップボタンを「次の問題へ」として処理する
+
+	進めた、または権限エラー等の応答を返した場合は True、未確定で通常処理を続ける場合は False を返す
+	"""
+	if not session.q_resolved or session.NEXT.is_set():
+		return False
+	if interaction.user is None:
+		return False
+	user_id = interaction.user.id
+
+	# 投票モード: 次の問題への進行投票として受け付ける
+	if session.progression_mode is Mode.VOTE:
+		if not session.roster.is_joined(user_id):
+			await interaction.respond(
+				embed=EmbedsTemplates.error(description=t("view.q.next_q_button.not_joined")),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return True
+		vote_progression = session.vote_progression
+		if vote_progression is None:
+			await interaction.respond(
+				embed=EmbedsTemplates.internal_error(
+					error_code=await DebugLogger.report_internal_error("advance_resolved: vote_progression is None")
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return True
+		vote_progression.vote(Action.NEXT, user_id)
+		players = len(session.roster.players)
+		if not vote_progression.should_advance(Action.NEXT, players):
+			votes = vote_progression.votes(Action.NEXT)
+			await interaction.respond(
+				embed=EmbedsTemplates.info(
+					title=t("view.q.next_q_button.label.next"),
+					description=f"({votes}/{players})",
+					icon="⏭️",
+				),
+				ephemeral=True,
+				delete_after=3,
+			)
+			return True
+		await interaction.response.defer()
+		await session.advance_to_next()
+		return True
+
+	# 主催者モード: 次ボタンと同じく主催者のみが進められる
+	if session.owner is not None and session.owner.id != user_id:
+		await interaction.respond(
+			embed=EmbedsTemplates.error(description=t("view.q.next_q_button.do_not_have_permission")),
+			ephemeral=True,
+			delete_after=3,
+		)
+		return True
+
+	await interaction.response.defer()
+	await session.advance_to_next()
+	return True
 
 
 class QuizReplayButtonView(discord.ui.View):
@@ -303,12 +365,7 @@ class QuizNextQButtonView(discord.ui.View):
 		except discord.errors.NotFound:
 			pass
 		# 再生停止 (=次の問題へ)
-		self.session.expect_user_next = False
-		try:
-			await self.session.pl.stop()
-		except Exception:
-			logger.exception("- 再生停止エラー")
-		self.session.NEXT.set()
+		await self.session.advance_to_next()
 
 
 class QuizAnswerSelectView(discord.ui.View):
@@ -420,8 +477,7 @@ class QuizAnswerSelectView(discord.ui.View):
 			# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
 			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
 			self.session.expect_user_next = True
-			next_q_button = QuizNextQButtonView(self.session_id, disabled=False)
-			await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
+			await self.session.edit_q_msg_with_next_button(_embed, user_id=interaction.user.id)
 			# 既に次へ進む要求がある場合は SFX とリプレイをスキップする
 			if self.session.NEXT.is_set():
 				logger.debug("- 次へ進む要求済みのため SFX とリプレイをスキップ")
@@ -493,8 +549,6 @@ class QuizAnswerButtonView(discord.ui.View):
 			)
 			return
 
-		await interaction.response.defer()
-
 		# セッションを取得し直す
 		self.session = quiz_session_manager.get_session(self.session_id)
 
@@ -507,6 +561,12 @@ class QuizAnswerButtonView(discord.ui.View):
 				delete_after=3,
 			)
 			return
+
+		# 解答が確定済みの場合は「次の問題へ」として処理する (次ボタンの編集が反映されなかった場合の復帰)
+		if await _try_advance_resolved(self.session, interaction):
+			return
+
+		await interaction.response.defer()
 
 		# 再生停止&解答セレクター送信
 		await self.session.raise_hand(interaction, interaction.user.id)
@@ -536,6 +596,10 @@ class QuizAnswerButtonView(discord.ui.View):
 				ephemeral=True,
 				delete_after=3,
 			)
+			return
+
+		# 解答が確定済みの場合は「次の問題へ」として処理する (次ボタンの編集が反映されなかった場合の復帰)
+		if await _try_advance_resolved(self.session, interaction):
 			return
 
 		# 楽曲を再生していない場合はエラーメッセージを返す (モード共通)
@@ -613,6 +677,7 @@ class QuizAnswerButtonView(discord.ui.View):
 
 		# 解答ができない状態にする
 		self.session.can_answered = False
+		self.session.q_resolved = True
 		# 問題ごとの結果に「正解者なし」を記録する (正解済みの場合は上書きしない)
 		self.session.q_results.setdefault(self.session.current_q_number, None)
 
@@ -639,9 +704,8 @@ class QuizAnswerButtonView(discord.ui.View):
 		# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
 		# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
 		self.session.expect_user_next = True
-		next_q_button = QuizNextQButtonView(self.session_id, disabled=False)  # 次の問題へ ボタン
 		await interaction.response.defer()
-		await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
+		await self.session.edit_q_msg_with_next_button(_embed, user_id=interaction.user.id)
 
 		# 答えの楽曲を再生する
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する

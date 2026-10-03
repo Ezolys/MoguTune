@@ -149,11 +149,16 @@ async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent)
 	# 誰も正解しないまま再生が終わった場合は正解情報を送信してサビを再生する（スキップと同様）
 	if payload.reason == sonolink.TrackEndReason.FINISHED:
 		# 解答ウィンドウ中は解答側の処理に任せる (受理時に捕獲したトラックで判定し、ウィンドウ終了時にタイムアップ処理を行う)
-		if session.answering_player is not None:
+		if session.can_answered and session.answering_player is not None:
 			logger.debug("- 解答中のためタイムアップ処理をスキップ")
 			return
 		if session.can_answered:
 			await session.reveal_answer_on_timeout(payload.track)
-		# 正解・スキップ後のリプレイは次ボタン待ち (自然終了での自動進行を防ぐ)
+		# 解答確定後のリプレイが終了した場合は一定時間待って自動で次の問題へ進む
+		# (次ボタンの編集が反映されなかった場合の保険。早押しで次ボタンが押された場合はそちらが優先される)
+		elif session.q_resolved and session.expect_user_next:
+			logger.debug("- 解答確定後のリプレイ終了: %d 秒後に自動で次の問題へ", session.NEXT_FALLBACK_SECONDS)
+			session.schedule_next_fallback()
+		# 次ボタン待ちでない場合は自動で次の問題へ進む
 		elif not session.expect_user_next:
 			session.NEXT.set()
