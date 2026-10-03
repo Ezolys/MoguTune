@@ -47,6 +47,8 @@ def setup_logging(console_level: int = logging.INFO, file_level: int = logging.D
 	# 6. ライブラリごとのログレベルを設定
 	# Pycordのログは非常に多いので、重要なエラーのみに絞る
 	logging.getLogger("discord").setLevel(logging.ERROR)
+	# ただし HTTP 層の警告 (レート制限・リトライ) は調査に必要なので WARNING 以上を出力する
+	logging.getLogger("discord.http").setLevel(logging.WARNING)
 	# 必要に応じて他のライブラリのログレベルも設定できる
 	# logging.getLogger("urllib3").setLevel(logging.INFO)
 

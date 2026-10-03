@@ -22,6 +22,7 @@ from mogutune.chorus import YTMostReplayedAPI
 from mogutune.client import client
 from mogutune.debug_logger import DebugLogger
 from mogutune.embeds import EmbedsTemplates
+from mogutune.quiz.message_writer import QuizMessageWriter
 from mogutune.quiz.permissions import check_voice_permissions
 from mogutune.quiz.player import QuizPlayer
 from mogutune.quiz.results import (
@@ -153,7 +154,16 @@ class QuizSession:
 	answer_pause_position: int = 0
 	"""回答開始時に一時停止した再生位置 (ミリ秒)"""
 	expect_user_next: bool = False
-	"""正解・スキップ後のリプレイ終了を次ボタン待ちにするかどうか (タイムアップ後の自動進行には使わない)"""
+	"""解答確定後のリプレイ終了を次ボタン待ちにするかどうか"""
+	q_resolved: bool = False
+	"""現在の問題の解答が確定したかどうか (正解・スキップ・タイムアップなど)"""
+
+	NEXT_FALLBACK_SECONDS: int = 15
+	"""解答確定後のリプレイ終了から自動で次の問題へ進むまでの待ち時間 (秒)"""
+	next_fallback_task: asyncio.Task | None = field(default=None, repr=False, compare=False)
+	"""リプレイ終了後の自動進行タスク"""
+	q_writer: QuizMessageWriter | None = field(default=None, repr=False, compare=False)
+	"""q_msg の表示を直列に更新するライター"""
 
 	READY: asyncio.Event = field(default_factory=asyncio.Event)
 	"""準備完了待ちイベント"""
@@ -310,12 +320,12 @@ class QuizSession:
 
 	@staticmethod
 	def format_track_title(track: SonoPlayable | None, max_length: int | None = None, *, with_author: bool = False) -> str:
-		"""表示用の楽曲タイトルを返す"""
+		"""表示用の楽曲タイトルを返す (YouTube は動画タイトルに作者名が含まれることが多いため作者名を付けない)"""
 		if track is None:
 			return "Unknown"
 
-		title = track.title if track.source_name == "youtube" else track.title
-		if with_author and track.author is not None:
+		title = track.title
+		if with_author and track.author is not None and track.source_name != "youtube":
 			title += f" - {track.author}"
 		if max_length is not None and len(title) > max_length:
 			return title[:max_length] + "..."
@@ -376,7 +386,11 @@ class QuizSession:
 			else:
 				member: discord.Member | None = await self.guild.get_or_fetch(discord.Member, player_id)
 				who = member.mention if member is not None else str(player_id)
-			lines.append(t("msg.q.end.questions.line", number, title, who))
+			uri = track.uri
+			if uri is not None and uri.startswith(("http://", "https://")):
+				lines.append(t("msg.q.end.questions.line_link", number, title, uri, who))
+			else:
+				lines.append(t("msg.q.end.questions.line", number, title, who))
 		return lines
 
 	def _end_embeds(self, ranking_text: str, question_lines: list[str]) -> list[discord.Embed]:
@@ -392,27 +406,54 @@ class QuizSession:
 			for page in paginate_lines(question_lines, budget)
 		]
 
-	async def _edit_q_msg(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
-		"""q_msg の埋め込みを編集する (存在しない場合は無視)"""
-		if self.q_msg is None:
+	def _set_q_msg_state(self, embed: discord.Embed, view: discord.ui.View | None = MISSING) -> None:
+		"""q_msg の表示状態を更新する (実際の編集はライターが直列に行う)"""
+		if self.q_writer is None:
+			logger.warning("q_msg のライターが未初期化のため表示状態の更新をスキップします")
 			return
-		try:
-			await self.q_msg.edit(embed=embed, view=view)
-		except discord.errors.NotFound:
-			pass
-		except Exception:
-			logger.exception("q_msg の編集に失敗しました")
+		self.q_writer.set_state(embed, view=view)
 
-	async def _edit_q_msg_view(self, view: discord.ui.View | None = MISSING) -> None:
-		"""q_msg の view のみを編集する (存在しない場合は無視)"""
-		if self.q_msg is None:
+	def _close_q_writer(self) -> None:
+		"""q_msg のライターを停止する"""
+		if self.q_writer is not None:
+			self.q_writer.close()
+			self.q_writer = None
+
+	async def announce_result_with_next(self, embed: discord.Embed) -> None:
+		"""解答結果を q_msg に表示し、「次の問題へ」ボタンを別メッセージで送信する
+
+		結果表示の編集がDiscord側で巻き戻っても進行できなくならないよう、進行ボタンは
+		別メッセージに置く。ボタンの送信に失敗した場合も自動進行で復帰する。
+		"""
+		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
+
+		if not self.playing:
 			return
-		try:
-			await self.q_msg.edit(view=view)
-		except discord.errors.NotFound:
-			pass
-		except Exception:
-			logger.exception("q_msg の view 編集に失敗しました")
+
+		# 早押しを検知できるよう、ボタン送信前に次ボタン待ちの状態にする
+		self.expect_user_next = True
+		# 結果表示からはボタンを外す (古いボタンが巻き戻っても _try_advance_resolved で復帰できる)
+		self._set_q_msg_state(embed, view=None)
+
+		next_msg = await self._send_to_vc(view=QuizNextQButtonView(self.guild_id, disabled=False))
+		if next_msg is None:
+			logger.warning("次の問題へボタンの送信に失敗しました (タイムアウト後に自動で次の問題へ進みます)")
+			return
+		self.next_cleanup_messages.append(next_msg)
+		logger.debug("次の問題へボタンを送信: %s", next_msg.id)
+
+	async def _cleanup_messages(self) -> None:
+		"""削除対象のメッセージを削除する"""
+		for msg in self.next_cleanup_messages:
+			try:
+				await msg.delete()
+				logger.debug("- メッセージ削除: %s", msg.id)
+			except discord.errors.NotFound:
+				logger.debug("- メッセージ削除失敗 - NotFound: %s", msg.id)
+			except Exception:
+				logger.exception("- メッセージクリーンアップエラー")
+				await DebugLogger.report_internal_error(traceback.format_exc())
+		self.next_cleanup_messages = []
 
 	def _get_text_channel(self) -> discord.abc.Messageable | None:
 		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
@@ -483,6 +524,7 @@ class QuizSession:
 
 		self.is_skipping_current_q_by_exception = True
 		self.can_answered = False
+		self.q_resolved = True
 		self.answering_player = None
 		self.q_results.setdefault(self.current_q_number, None)
 		self.refresh()
@@ -513,9 +555,9 @@ class QuizSession:
 
 	async def reveal_answer_on_timeout(self, track: SonoPlayable) -> None:
 		"""誰も正解しないまま再生が終わった際に正解情報を表示してサビから再生する (スキップと同様)"""
-		from mogutune.quiz.views import QuizNextQButtonView  # noqa: PLC0415
-
 		self.can_answered = False
+		self.q_resolved = True
+		self.expect_user_next = True
 		self.q_results.setdefault(self.current_q_number, None)
 		self.q_wait_seconds = 4
 
@@ -530,8 +572,13 @@ class QuizSession:
 		)
 		_embed = self.set_footer_track_info(_embed, track)
 
-		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
-		await self._edit_q_msg(_embed, view=next_q_button)
+		# 結果表示と次の問題へボタンを送信する (早期に押された場合はリプレイをスキップする)
+		await self.announce_result_with_next(_embed)
+
+		# ボタンが既に押されて進行要求済み (NEXT 設定済み) の場合はリプレイを再生しない
+		if self.NEXT.is_set():
+			logger.debug("- 次へ進む要求済みのためリプレイをスキップ")
+			return
 
 		_position = 0
 		_uri = await self.resolve_youtube_track_uri(track)
@@ -549,10 +596,6 @@ class QuizSession:
 			logger.error("タイムアップ後の楽曲再生に失敗しました")
 			logger.error(traceback.format_exc())
 			self.NEXT.set()
-			return
-
-		next_q_button.enable_all_items()
-		await self._edit_q_msg_view(next_q_button)
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""
@@ -574,11 +617,14 @@ class QuizSession:
 		self.can_answered = False
 		self.answering_player = None
 		self.next_cleanup_messages = []
+		self._close_q_writer()
 		self.q_msg = None
 		self.owner = None
 		self.started_at = None
 		self.roster.owner_id = None
 		self.expect_user_next = False
+		self.q_resolved = False
+		self.cancel_next_fallback()
 		self.restore_track_after_sfx = True
 		self.sfx_track_playing = None
 		self.answer_pause_position = 0
@@ -586,6 +632,52 @@ class QuizSession:
 		self.vote_progression = None
 		self.q_results = {}
 		self.participant_questions = {}
+
+	def cancel_next_fallback(self) -> None:
+		"""リプレイ終了後の自動進行タスクをキャンセルする"""
+		task = self.next_fallback_task
+		self.next_fallback_task = None
+		if task is not None and not task.done():
+			task.cancel()
+
+	async def advance_to_next(self) -> None:
+		"""次の問題へ進む (次ボタンと同じ動作。既に進行要求済みの場合は何もしない)"""
+		if self.NEXT.is_set():
+			return
+		self.cancel_next_fallback()
+		self.expect_user_next = False
+		try:
+			await self.pl.stop()
+		except Exception:
+			logger.exception("- 再生停止エラー")
+		self.NEXT.set()
+
+	def schedule_next_fallback(self) -> None:
+		"""リプレイ終了後に一定時間待って自動で次の問題へ進むタスクを開始する"""
+		if self.NEXT.is_set():
+			return
+		self.cancel_next_fallback()
+		self.next_fallback_task = asyncio.create_task(
+			self._next_fallback(self.current_q_number),
+			name=f"quiz-next-fallback-{self.guild_id}",
+		)
+
+	async def _next_fallback(self, q_number: int) -> None:
+		"""一定時間内に次へ進まなかった場合に自動で次の問題へ進む"""
+		timed_out = False
+		try:
+			await asyncio.wait_for(self.NEXT.wait(), timeout=self.NEXT_FALLBACK_SECONDS)
+		except TimeoutError:
+			timed_out = True
+		finally:
+			# 自分自身を保持から外す (advance_to_next からのキャンセルを防ぐ)
+			self.next_fallback_task = None
+		if not timed_out:
+			return
+		if not self.playing or self.current_q_number != q_number or self.NEXT.is_set():
+			return
+		logger.info("次の問題への自動進行を実行 (問題 %d, 待機 %d 秒)", q_number, self.NEXT_FALLBACK_SECONDS)
+		await self.advance_to_next()
 
 	async def play_sfx(self, sfx_query: str | SFX, restore: bool = True) -> None:
 		"""SFXを再生する
@@ -831,17 +923,10 @@ class QuizSession:
 			logger.debug("Tracks Plugin Info")
 			logger.debug(tracks.plugin_info)
 
-			# 表示するプレイリスト (アルバム) のタイトルの種類とジャケットを設定する
+			# 表示するプレイリスト (アルバム) のタイトルの種類を設定する
 			playlist_title_prefix = t("msg.q.init.description.playlist_type.playlist")
-			artwork_url = None
-			if tracks.plugin_info is not None:
-				# Spotify
-				if tracks.tracks[0].source_name == "spotify":
-					# アルバム
-					if tracks.plugin_info.get("type") == "album":
-						playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
-					# ジャケットを取得
-					artwork_url = tracks.plugin_info.get("artworkUrl")
+			if tracks.plugin_info is not None and tracks.tracks[0].source_name == "spotify" and tracks.plugin_info.get("type") == "album":
+				playlist_title_prefix = t("msg.q.init.description.playlist_type.album")
 
 			# 表示するプレイリスト名のテキストを生成 (URLの場合はリンクにする)
 			if query.startswith("http"):
@@ -869,8 +954,6 @@ class QuizSession:
 				description=description,
 				icon="▶️",
 			)
-			# ジャケットを設定
-			start_msg_embed.set_thumbnail(url=artwork_url)
 
 			# クイズ開始メッセージを送信 (準備完了ボタン付き)
 			start_msg = await self._send_to_vc(embed=start_msg_embed, view=QuizReadyButtonView(self.guild_id))
@@ -918,21 +1001,6 @@ class QuizSession:
 			# 全曲のラウドネス解析完了を待つ (間に合わなかった曲は原音で再生され、後からバックグラウンドで補正される)
 			await self._wait_lufs_analysis(start_msg)
 
-			# 問題開始メッセージを送信
-			q_msg = await self._send_to_vc(
-				embed=EmbedsTemplates.info(title=t("msg.q.start.title", "-"), description=t("msg.q.start.description"), icon="❔"),
-				view=QuizAnswerButtonView(self.guild_id),  # 回答ボタン
-			)
-			if q_msg is None:
-				try:
-					await start_msg.delete()
-				except Exception:
-					pass
-				self.playing = False
-				self.reset()
-				return False
-			self.q_msg = q_msg
-
 			for i, q in enumerate(self.q_tracks, 1):
 				if not self.playing:
 					break
@@ -943,6 +1011,7 @@ class QuizSession:
 				self.current_q_track = q
 				self.answer_target_track = None
 				self.is_skipping_current_q_by_exception = False
+				self.q_resolved = False
 
 				# 参加待ちのプレイヤーを参加させる
 				await self.join_queued_players()
@@ -956,13 +1025,31 @@ class QuizSession:
 
 				self.NEXT.clear()
 				self.expect_user_next = False
+				self.cancel_next_fallback()
 				# 前の問題の進行投票をリセットする
 				if self.vote_progression is not None:
 					self.vote_progression.reset()
 
 				logger.debug("- タイトル更新")
 				# タイトルを更新 (結果表示から問題表示へ戻す際に解答/スキップボタンを復元する)
-				await self._edit_q_msg(self._question_embed(), view=QuizAnswerButtonView(self.guild_id))
+				# 最初の問題はプレースホルダを経由せず、最終状態のまま送信する (送信直後の編集を避ける)
+				if self.q_msg is None:
+					sent = await self._send_to_vc(
+						embed=self._question_embed(),
+						view=QuizAnswerButtonView(self.guild_id),
+					)
+					if sent is None:
+						try:
+							await start_msg.delete()
+						except Exception:
+							logger.debug("開始メッセージの削除に失敗しました", exc_info=True)
+						self.playing = False
+						self.reset()
+						return False
+					self.q_msg = sent
+					self.q_writer = QuizMessageWriter(sent, guild_id=self.guild_id, label=f"q_msg (guild={self.guild_id})")
+				else:
+					self._set_q_msg_state(self._question_embed(), view=QuizAnswerButtonView(self.guild_id))
 
 				# SFX
 				await self.play_sfx(SFX.Q)
@@ -1003,18 +1090,7 @@ class QuizSession:
 				logger.debug("- 再生終了")
 
 				# 削除対象のメッセージたちを削除する
-				for msg in self.next_cleanup_messages:
-					try:
-						await msg.delete()
-						logger.debug(f"- 問題終了時メッセージ削除: {msg.id}")
-					except discord.errors.NotFound:
-						logger.debug(f"- 問題終了時メッセージ削除失敗 - NotFound: {msg.id}")
-					except Exception:
-						logger.error("- 問題終了時メッセージクリーンアップエラー")
-						logger.error(traceback.format_exc())
-						await DebugLogger.report_internal_error(traceback.format_exc())
-				# 削除対象のメッセージ一覧をリセットする
-				self.next_cleanup_messages = []
+				await self._cleanup_messages()
 
 				# 待機
 				logger.debug("待機")
@@ -1024,11 +1100,12 @@ class QuizSession:
 				# 待機時間をリセット
 				self.q_wait_seconds = self.DEFAULT_Q_WAIT_SECONDS
 
-			# 解答メッセージを削除
-			try:
-				await q_msg.delete()
-			except discord.errors.NotFound:
-				pass
+			# 解答メッセージと残りの削除対象メッセージを削除する
+			self._close_q_writer()
+			if self.q_msg is not None:
+				self.next_cleanup_messages.append(self.q_msg)
+				self.q_msg = None
+			await self._cleanup_messages()
 
 			try:
 				logger.debug("ランキング生成")
@@ -1203,7 +1280,7 @@ class QuizSession:
 		self.refresh()
 
 		# 解答中メッセージを表示する (解答ボタン付きメッセージの埋め込みを更新)
-		await self._edit_q_msg(
+		self._set_q_msg_state(
 			EmbedsTemplates.info(
 				title=t("msg.q.answering.title"),
 				description=t(
@@ -1242,7 +1319,7 @@ class QuizSession:
 				# 不正解
 				self.answering_player.incorrect()
 				# 解答時間切れを全員に表示する
-				await self._edit_q_msg(
+				self._set_q_msg_state(
 					EmbedsTemplates.error(
 						title=t("msg.q.answering.timeout.title"),
 						description=t("msg.q.answering.timeout.description", pn),
@@ -1293,7 +1370,7 @@ class QuizSession:
 
 		# 解答中メッセージを問題表示に戻す (正解時は正解 embed と次ボタンを維持する)
 		if self.can_answered:
-			await self._edit_q_msg(self._question_embed())
+			self._set_q_msg_state(self._question_embed())
 
 		# 部品を有効化
 		# if interaction.view is not None:
@@ -1329,6 +1406,7 @@ class QuizSession:
 			logger.debug("- 正解")
 			# 解答ができない状態にする
 			self.can_answered = False
+			self.q_resolved = True
 			correct_track = target
 			# 正解
 			player.correct()

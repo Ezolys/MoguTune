@@ -83,6 +83,8 @@ class Bot(commands.Bot):
 				if not any(n.is_connected for n in self.sl_client.nodes):
 					raise RuntimeError("Lavalink ノードが接続されていません")
 				self.sl_started = True
+				connected = [n.id for n in self.sl_client.nodes if n.is_connected]
+				logger.info("Lavalink ノードへ接続しました: %s", ", ".join(connected))
 				break
 			except Exception as e:
 				logger.warning("Lavalink ノード接続失敗 [試行 %d/%d]: %s", attempt, max_attempts, e)
@@ -447,6 +449,21 @@ async def on_guild_join(guild: discord.Guild) -> None:
 @client.listen()
 async def on_guild_remove(guild: discord.Guild) -> None:
 	await telemetry.remove_guild(guild.id)
+
+
+# View (UI コンポーネント) コールバックのエラー時
+# pycord は view コールバックの例外を view_error として通知するが、購読しないと無言で破棄されるため必ず記録する
+@client.listen()
+async def on_view_error(error: Exception, item: discord.ui.Item, interaction: discord.Interaction) -> None:
+	logger.error("View コールバックエラー: %r", item)
+	logger.error(error)
+	await DebugLogger.report_internal_error(
+		"".join(traceback.format_exception(type(error), error, error.__traceback__)),
+		description=f"{item!r}: {error!r}",
+		source="view_error",
+		guild_id=interaction.guild_id,
+		user_id=interaction.user.id if interaction.user is not None else None,
+	)
 
 
 def run() -> None:
