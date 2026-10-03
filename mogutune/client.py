@@ -451,6 +451,21 @@ async def on_guild_remove(guild: discord.Guild) -> None:
 	await telemetry.remove_guild(guild.id)
 
 
+# View (UI コンポーネント) コールバックのエラー時
+# pycord は view コールバックの例外を view_error として通知するが、購読しないと無言で破棄されるため必ず記録する
+@client.listen()
+async def on_view_error(error: Exception, item: discord.ui.Item, interaction: discord.Interaction) -> None:
+	logger.error("View コールバックエラー: %r", item)
+	logger.error(error)
+	await DebugLogger.report_internal_error(
+		"".join(traceback.format_exception(type(error), error, error.__traceback__)),
+		description=f"{item!r}: {error!r}",
+		source="view_error",
+		guild_id=interaction.guild_id,
+		user_id=interaction.user.id if interaction.user is not None else None,
+	)
+
+
 def run() -> None:
 	# 言語データを読み込む
 	i18n.load_locale_data()

@@ -407,17 +407,6 @@ class QuizSession:
 		except Exception:
 			logger.exception("q_msg の編集に失敗しました")
 
-	async def _edit_q_msg_view(self, view: discord.ui.View | None = MISSING) -> None:
-		"""q_msg の view のみを編集する (存在しない場合は無視)"""
-		if self.q_msg is None:
-			return
-		try:
-			await self.q_msg.edit(view=view)
-		except discord.errors.NotFound:
-			pass
-		except Exception:
-			logger.exception("q_msg の view 編集に失敗しました")
-
 	def _get_text_channel(self) -> discord.abc.Messageable | None:
 		"""実行元テキストチャンネルを取得 (フォールバック通知先)"""
 		if self.text_channel_id is None:
@@ -534,8 +523,14 @@ class QuizSession:
 		)
 		_embed = self.set_footer_track_info(_embed, track)
 
-		next_q_button = QuizNextQButtonView(self.guild_id, disabled=True)
+		# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
+		next_q_button = QuizNextQButtonView(self.guild_id, disabled=False)
 		await self._edit_q_msg(_embed, view=next_q_button)
+
+		# ボタンが既に押されて進行要求済み (NEXT 設定済み) の場合はリプレイを再生しない
+		if self.NEXT.is_set():
+			logger.debug("- 次へ進む要求済みのためリプレイをスキップ")
+			return
 
 		_position = 0
 		_uri = await self.resolve_youtube_track_uri(track)
@@ -553,10 +548,6 @@ class QuizSession:
 			logger.error("タイムアップ後の楽曲再生に失敗しました")
 			logger.error(traceback.format_exc())
 			self.NEXT.set()
-			return
-
-		next_q_button.enable_all_items()
-		await self._edit_q_msg_view(next_q_button)
 
 	def refresh(self) -> None:
 		"""全プレイヤーの不正解フラグをリセット"""

@@ -417,8 +417,15 @@ class QuizAnswerSelectView(discord.ui.View):
 			_embed = self.session.set_footer_track_info(_embed, _track)
 
 			# q_msg を正解 embed に編集し、次の問題へボタンを配置する
-			next_q_button = QuizNextQButtonView(self.session_id, disabled=True)
+			# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
+			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
+			self.session.expect_user_next = True
+			next_q_button = QuizNextQButtonView(self.session_id, disabled=False)
 			await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
+			# 既に次へ進む要求がある場合は SFX とリプレイをスキップする
+			if self.session.NEXT.is_set():
+				logger.debug("- 次へ進む要求済みのため SFX とリプレイをスキップ")
+				return
 			# SFX
 			await self.session.play_sfx(SFX.CORRECT, restore=False)  # restore を False にして解答できないままにする
 			await asyncio.sleep(1)
@@ -427,8 +434,10 @@ class QuizAnswerSelectView(discord.ui.View):
 			# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 			# if self.session.pl.current is not None and self.session.pl.current.uri is not None:
 			logger.debug("- 正解後再生開始")
-			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ)
-			self.session.expect_user_next = True
+			# ボタンが既に押されて進行要求済み (NEXT 設定済み) の場合はリプレイを再生しない
+			if self.session.NEXT.is_set():
+				logger.debug("- 次へ進む要求済みのためリプレイをスキップ")
+				return
 			try:
 				_position = 0
 				_uri = await self.session.resolve_youtube_track_uri(_track)
@@ -444,10 +453,6 @@ class QuizAnswerSelectView(discord.ui.View):
 			except Exception:
 				logger.exception("正解後の楽曲再生に失敗しました")
 				self.session.NEXT.set()
-
-			# 次の問題へボタンを有効化
-			next_q_button.enable_all_items()
-			await self.session._edit_q_msg_view(next_q_button)  # noqa: SLF001
 
 
 class QuizAnswerButtonView(discord.ui.View):
@@ -631,16 +636,21 @@ class QuizAnswerButtonView(discord.ui.View):
 		_embed = self.session.set_footer_track_info(_embed, _track)
 
 		# 通知メッセージを送信する
-		next_q_button = QuizNextQButtonView(self.session_id, disabled=True)  # 次の問題へ ボタン
+		# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
+		# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
+		self.session.expect_user_next = True
+		next_q_button = QuizNextQButtonView(self.session_id, disabled=False)  # 次の問題へ ボタン
 		await interaction.response.defer()
 		await self.session._edit_q_msg(_embed, view=next_q_button)  # noqa: SLF001
 
 		# 答えの楽曲を再生する
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
 		if self.session.pl.current is not None and self.session.pl.current.uri is not None:
+			# ボタンが既に押されて進行要求済み (NEXT 設定済み) の場合はリプレイを再生しない
+			if self.session.NEXT.is_set():
+				logger.debug("- 次へ進む要求済みのためリプレイをスキップ")
+				return
 			logger.debug("- スキップ後再生開始")
-			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ)
-			self.session.expect_user_next = True
 			try:
 				_position = 0
 				_uri = await self.session.resolve_youtube_track_uri(self.session.pl.current)
@@ -658,7 +668,3 @@ class QuizAnswerButtonView(discord.ui.View):
 			except Exception:
 				logger.exception("スキップ後の楽曲再生に失敗しました")
 				self.session.NEXT.set()
-
-		# 次の問題へボタンを有効化
-		next_q_button.enable_all_items()
-		await self.session._edit_q_msg_view(next_q_button)  # noqa: SLF001
