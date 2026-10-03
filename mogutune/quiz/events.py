@@ -148,6 +148,11 @@ async def on_sonolink_track_end(player: sonolink.Player, payload: TrackEndEvent)
 	# クイズの楽曲が終了した場合、次の問題へ進む
 	# 誰も正解しないまま再生が終わった場合は正解情報を送信してサビを再生する（スキップと同様）
 	if payload.reason == sonolink.TrackEndReason.FINISHED:
+		# 現在の問題のトラック以外の終了 (前の問題のリプレイ等の遅延イベント) は無視する
+		current_track = session.current_q_track
+		if current_track is None or payload.track.identifier != current_track.identifier:
+			logger.debug("- 現在の問題と異なるトラックの終了のためタイムアップ処理をスキップ: %s", payload.track.title)
+			return
 		# 解答ウィンドウ中は解答側の処理に任せる (受理時に捕獲したトラックで判定し、ウィンドウ終了時にタイムアップ処理を行う)
 		if session.can_answered and session.answering_player is not None:
 			logger.debug("- 解答中のためタイムアップ処理をスキップ")

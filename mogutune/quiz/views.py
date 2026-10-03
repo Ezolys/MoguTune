@@ -473,11 +473,9 @@ class QuizAnswerSelectView(discord.ui.View):
 			)
 			_embed = self.session.set_footer_track_info(_embed, _track)
 
-			# q_msg を正解 embed に編集し、次の問題へボタンを配置する
-			# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
+			# q_msg に正解 embed を表示し、次の問題へボタンを別メッセージで送信する
 			# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
-			self.session.expect_user_next = True
-			await self.session.edit_q_msg_with_next_button(_embed, user_id=interaction.user.id)
+			await self.session.announce_result_with_next(_embed)
 			# 既に次へ進む要求がある場合は SFX とリプレイをスキップする
 			if self.session.NEXT.is_set():
 				logger.debug("- 次へ進む要求済みのため SFX とリプレイをスキップ")
@@ -701,11 +699,9 @@ class QuizAnswerButtonView(discord.ui.View):
 		_embed = self.session.set_footer_track_info(_embed, _track)
 
 		# 通知メッセージを送信する
-		# 有効化のための2回目の編集は行わない (2回目の編集が反映されずボタンが無効のまま残る事象があるため、最初から有効で配置する)
-		# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
-		self.session.expect_user_next = True
 		await interaction.response.defer()
-		await self.session.edit_q_msg_with_next_button(_embed, user_id=interaction.user.id)
+		# リプレイ終了は次ボタン待ちにする (自然終了での自動進行を防ぐ。早押しを検知できるよう先に立てる)
+		await self.session.announce_result_with_next(_embed)
 
 		# 答えの楽曲を再生する
 		# ソースが YouTube の場合は YTMostReplayedAPI からリプレイ回数が最も多い部分を取得してそこから再生する
