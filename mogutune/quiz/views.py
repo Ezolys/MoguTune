@@ -449,7 +449,7 @@ class QuizAnswerSelectView(discord.ui.View):
 			_track = self.session.get_track_from_uri(interaction.data["values"][0])
 			_title = self.session.format_track_title(_track)
 			# 不正解を q_msg に表示する (全員に見える)
-			await self.session._edit_q_msg(  # noqa: SLF001
+			self.session._set_q_msg_state(  # noqa: SLF001
 				EmbedsTemplates.error(
 					title=t("view.q.answer_select.incorrect.title"),
 					description=t("view.q.answer_select.incorrect.description", _title),
