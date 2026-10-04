@@ -24,13 +24,15 @@ VCに接続し、コマンドで YouTube / Spotify / SoundCloud / Bandcamp な�
 
 ### ボットを招待
 
-[![Invite Discord Bot](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white&label=Invite)](https://discord.com/oauth2/authorize?client_id=1419676092314161193)
+[![Invite Discord Bot](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white&label=Invite)](https://mogutune.milkeyyy.com/invite)
 
 **ボットの稼働状況**
 
 [![Bot Status](https://monitor.milkeyyy.com/api/badge/28/status?style=flat-square&label=Discord%20Bot)](https://status.milkeyyy.com/)
 
 [![Lavalink Status](https://monitor.milkeyyy.com/api/badge/29/status?style=flat-square&label=Lavalink%20Node)](https://status.milkeyyy.com/)
+
+[![Backend API Status](https://monitor.milkeyyy.com/api/badge/56/avg-response/3?style=flat-square&label=Backend%20API)](https://status.milkeyyy.com/)
 
 > セルフホストについては[こちら](#-セルフホスト)
 
