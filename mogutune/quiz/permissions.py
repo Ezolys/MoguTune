@@ -1,7 +1,7 @@
 import discord
 
 # ロケールキー cmd.play.error.missing_permissions.{name} に対応
-REQUIRED_PERMISSIONS: tuple[str, ...] = ("view_channel", "connect", "speak", "send_messages", "embed_links")
+REQUIRED_PERMISSIONS: tuple[str, ...] = ("view_channel", "connect", "speak", "send_messages", "embed_links", "read_message_history")
 
 
 def check_missing_permissions(perms: discord.Permissions) -> list[str]:
@@ -37,8 +37,9 @@ if __name__ == "__main__":
 			"speak": False,
 			"send_messages": False,
 			"embed_links": False,
+			"read_message_history": False,
 		},
-		["view_channel", "connect", "speak", "send_messages", "embed_links"],
+		["view_channel", "connect", "speak", "send_messages", "embed_links", "read_message_history"],
 	)
 	# 1つだけ不足
 	_assert_missing(
@@ -48,6 +49,7 @@ if __name__ == "__main__":
 			"speak": True,
 			"send_messages": True,
 			"embed_links": True,
+			"read_message_history": True,
 		},
 		["connect"],
 	)
@@ -58,6 +60,7 @@ if __name__ == "__main__":
 		speak=True,
 		send_messages=True,
 		embed_links=True,
+		read_message_history=True,
 	)
 	assert check_missing_permissions(perms_all) == [], f"expected no missing, got {check_missing_permissions(perms_all)}"  # noqa: S101
 	print("permissions self-check passed")  # noqa: T201
