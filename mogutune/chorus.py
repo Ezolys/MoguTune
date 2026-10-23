@@ -3,7 +3,7 @@ import traceback
 from os import getenv
 from typing import ClassVar
 
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 
 logger = logging.getLogger(__name__)
 

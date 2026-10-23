@@ -5,7 +5,7 @@ description = "MoguTune"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "httpx>=0.28.1",
+    "httpx2>=2.15.1",
     "sonolink[speed]>=1.4.0",
     "mogutune-core>=0.1.0",
     "py-cord[speed,voice]>=2.8.1",

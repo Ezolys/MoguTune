@@ -8,7 +8,7 @@ import datetime
 import json
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
