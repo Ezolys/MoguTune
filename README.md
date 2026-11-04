@@ -22,19 +22,7 @@ VCに接続し、コマンドで YouTube / Spotify / SoundCloud / Bandcamp な�
 
 ## 📥 インストール
 
-### ボットを招待
-
-[![Invite Discord Bot](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white&label=Invite)](https://mogutune.milkeyyy.com/invite)
-
-**ボットの稼働状況**
-
-[![Bot Status](https://monitor.milkeyyy.com/api/badge/28/status?style=flat-square&label=Discord%20Bot)](https://status.milkeyyy.com/)
-
-[![Lavalink Status](https://monitor.milkeyyy.com/api/badge/29/status?style=flat-square&label=Lavalink%20Node)](https://status.milkeyyy.com/)
-
-[![Backend API Status](https://monitor.milkeyyy.com/api/badge/56/avg-response/3?style=flat-square&label=Backend%20API)](https://status.milkeyyy.com/)
-
-> セルフホストについては[こちら](#-セルフホスト)
+セルフホストについては[こちら](#-セルフホスト)をご覧ください。
 
 
 ## 🗨️ サポートなど
@@ -57,17 +45,20 @@ VCに接続し、コマンドで YouTube / Spotify / SoundCloud / Bandcamp な�
 
 任意のVCに接続して `/play` コマンドを実行すると、コマンド実行者がその時参加していたVC内のメンバーを参加者としたクイズの準備が始まります。
 
-「準備完了」ボタンを押すと参加の意思表示になり、デフォルトでは参加者の過半数が準備完了するとクイズが開始されます。
-
-開始条件は `/settings set` から「全員」に変更することもできます。(一定時間内に条件を満たせなかった場合は中止されます)
+「準備完了」ボタンを押すと参加の意思表示になり、デフォルトでは参加者の過半数が準備完了するとクイズが開始されます。 (設定で変更可能)
 
 クイズの途中でVCに参加した場合は次の問題から参加者に追加され、退出した場合は参加者から外れます。
-
-解答ボタン等のメッセージは、コマンドを実行したテキストチャンネルに関係なく、コマンド実行者が参加しているVC内のテキストチャットに送信されます。
 
 > URLを含むメッセージを右クリックして「アプリ」→「クイズをプレイ」を選ぶことでもクイズを開始できます。
 
 <img width="1716" height="797" alt="image" src="https://github.com/user-attachments/assets/424b1c31-0a0d-4862-ba30-8048c1014844" />
+
+---
+
+
+解答ボタン等のメッセージは、コマンドを実行したテキストチャンネルに関係なく、コマンド実行者が参加しているVC内のテキストチャットに送信されます。
+
+<img width="289" height="117" alt="image" src="https://github.com/user-attachments/assets/c143b9d7-275f-4a8a-babd-4ce604fb5b4c" />
 
 
 ### 解答
@@ -152,7 +143,7 @@ VCに接続し、コマンドで YouTube / Spotify / SoundCloud / Bandcamp な�
 
 - `/stats`
 
-  実行者自身のクイズ統計 (順位・累計正解数・累計参加問題数・正解率・累計参加クイズ数) を表示します。自分にのみ表示されます (ephemeral)。
+  実行者自身のクイズ統計 (順位・累計正解数・累計参加問題数・正解率・累計参加クイズ数) を表示します。自分にのみ表示されます。
 
 
 - メッセージのコンテキストメニュー「クイズをプレイ」
@@ -222,12 +213,10 @@ VCに接続し、コマンドで YouTube / Spotify / SoundCloud / Bandcamp な�
 
 ## 🔋 セルフホスト
 
-自分でサーバーを用意してボットを動かすこともできます。
-
-### 必要なもの
+**前提条件**
 
 - [Docker](https://docs.docker.com/get-docker/) / Docker Compose
-- Discord Bot Token ([Discord Developer Portal](https://discord.com/developers/applications) で取得)
+- Discord ボットのトークン ([Discord Developer Portal](https://discord.com/developers/applications))
 - MongoDB ([MongoDB Atlas](https://www.mongodb.com/atlas) などのホスティングサービス、または自前のサーバー)
 
 
@@ -328,7 +317,7 @@ Docker を使わずに直接実行することもできます。
 | `MAX_SESSIONS` | 任意 | 同時に実行できるクイズの最大セッション数 (デフォルト: `0` = 無制限) |
 | `SFX_QUIZ_*` | 任意 | クイズの効果音 ([効果音](#効果音)を参照) |
 | `NORMALIZE_*` | 任意 | 楽曲の音量をラウドネス補正する設定 (`NORMALIZE_ENABLED` で有効/無効を切り替え) |
-| `PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID` / `PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET` | 任意 | Spotify のURLを使う場合に必要 ([Spotify Developer Dashboard](https://developer.spotify.com/dashboard) で取得) |
+| `PLUGINS_LAVASRC_SPOTIFY_CLIENT_ID` / `PLUGINS_LAVASRC_SPOTIFY_CLIENT_SECRET` | 任意 | Spotify のURLを使う場合に必要 ([Spotify Developer Dashboard](https://developer.spotify.com/) で取得) |
 | `SERVER_ADDRESS` / `SERVER_PORT` / `LAVALINK_SERVER_PASSWORD` | 任意 | Lavalink サーバー本体の設定 (`LAVALINK_*` 側と合わせる) |
 | `UPTIME_KUMA_PUSH_URL` | 任意 | 設定すると [Uptime Kuma](https://github.com/louislam/uptime-kuma) へ死活監視の heartbeat を送信 |
 | `DEBUG` / `DEBUG_GUILD_ID` / `DEBUG_LOG_GUILD_ID` / `DEBUG_LOG_TEXT_CHANNEL_ID` | 任意 | 開発・デバッグ用の設定 |
@@ -360,23 +349,21 @@ Spotify などの直接オーディオを取得することができないプラ
 
 
 ### `/play` コマンドに渡すことができるURL
-`/play` コマンドに渡すことができるURLは、Lavalink の設定や導入するプラグインによって異なります。
 
-[公開インスタンス](#ボットを招待)では以下のプラットフォームに対応しています。
+このボットで正式に対応しているプラットフォームは以下のとおりです。
 
-- YouTube / YouTube Music (プレイリスト)
-  > YouTube Music のアルバムはプレイリストと同等のため対応しています
+- YouTube / YouTube Music (プレイリスト/アルバム)
 - Spotify (プレイリスト/アルバム/アーティスト)
 - SoundCloud
 - Bandcamp
+
+上記以外のプラットフォームも使用可能ですが、Lavalink の設定や導入しているプラグインによって異なります。
 
 詳しくは以下のリンク先を参照してください。
 
 - Lavalink: https://github.com/lavalink-devs/Lavalink
 - youtube-source (プラグイン): https://github.com/lavalink-devs/youtube-source
 - LavaSrc (プラグイン): https://github.com/topi314/LavaSrc
-
-> セルフホストの場合は、使用する Lavalink のプラグインや設定 (Spotify のAPIクレデンシャルなど) によって対応状況が変わります。
 
 
 ## 📚 関連リポジトリー
