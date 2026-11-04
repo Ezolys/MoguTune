@@ -1,7 +1,7 @@
 import logging
 from os import getenv
 
-import httpx
+import httpx2 as httpx
 
 logger = logging.getLogger(__name__)
 

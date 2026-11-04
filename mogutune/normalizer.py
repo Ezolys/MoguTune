@@ -4,7 +4,7 @@ import time
 from collections.abc import Awaitable, Callable
 from os import getenv
 
-import httpx
+import httpx2 as httpx
 import sonolink
 from mogutune_core.db import DBManager
 from sonolink.models import Filters

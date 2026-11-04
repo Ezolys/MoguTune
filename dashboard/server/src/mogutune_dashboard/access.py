@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
 
-import httpx
+import httpx2 as httpx
 import jwt
 from fastapi import Depends, HTTPException, Request
 
