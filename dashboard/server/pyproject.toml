@@ -27,7 +27,11 @@ build-backend = "hatchling.build"
 packages = ["src/mogutune_dashboard"]
 
 [tool.uv]
-exclude-newer = "1 day"
+exclude-newer = "3 hours"
+
+[[tool.uv.index]]
+url = "https://pypi.flatt.tech/simple/"
+default = true
 
 [tool.ruff]
 line-length = 140
